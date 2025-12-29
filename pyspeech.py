@@ -30,6 +30,11 @@ To run this you need to get an OpenAI API key and put it in a file called "creep
 OpenAI currently costs a few pennies to use. I've run this for an hour at a cost of $1.00. It was
 well worth it.
 
+If you want to use the -q option, which stores the completed pictures in the AWS S3 cloud and displays 
+QR code to allow instant download, you will need to create an Amazon AWS account and create an S3 bucket, 
+and a couple of other things.  More complete instructions are in the file names s3_and_qr_readme.txt
+
+
 ALSO NOTE: If you are not getting any audio, then you may not have given the program
 permission to access your microphone. On OSX it took me some searching to figure this out.
 https://superuser.com/questions/1441270/apps-dont-show-up-in-camera-and-microphone-privacy-settings-in-macbook
@@ -112,7 +117,8 @@ Specific to Raspberry Pi:
         pip install pillow
         pip install pyaudio
         pip install RPi.GPIO
-     
+        pip install boto3       needed only if you are going to use teh -q option to store finished images in the AWS S3 cloud
+        pip install qrcode      needed if you are using the -q option and S3 to enable instant downloads via QR code
 
     Note that when run you will see 10 or so lines of errors about sockets and JACKD and whatnot.
     Don't worry, it is still working. If you know how to fix this, please let me know.
@@ -135,6 +141,7 @@ v 0.5 Initial version
 v 0.6 2023-11-12 inverted Go Button logic so it is active low (pulled to ground)
 v 0.7 updated to python 3.12 and openAI 1.0.0 (wow that was a pain)
       BE SURE to read updated install instructions above
+v 1.2 Added capability to store images created in the AWS S3 cloud and display a QR code to them for instant download
 """
 
 # import common libraries
@@ -156,9 +163,10 @@ import json
 import string
 from enum import IntEnum
 from PIL import Image, ImageDraw, ImageFont, ImageTk
+from s3_and_qr import upload_to_s3_and_generate_qr
 
 import openai
-S2P_VERSION = "1.1"
+S2P_VERSION = "1.2"
 
 g_isMacOS = False
 if (platform.system() == "Darwin"):
@@ -241,6 +249,10 @@ if not g_isMacOS:
     BUTTON_PULL_UP_DOWN = GPIO.PUD_UP
     BUTTON_PRESSED = GPIO.LOW  
 
+# set S3 constants
+s3_bucket_to_store_in = "amzn-s3-speech2picture"
+
+
 # used by command line args to jump into the middle of the process
 class processStep(IntEnum):
         NoneSpecified = 0
@@ -285,6 +297,9 @@ class g_args:
 
     # if true, then save files that are generated in the process - mostly a debug feature
     isSaveFiles = False
+
+    # if true, then use S3 to store user images and pop a QR code to allow download of displayed images
+    useS3 = True
 
 
 
@@ -667,23 +682,42 @@ def getImageURL(phrase):
     logger.info("image prompt: " + prompt)
 
     # use openai to generate a picture based on the summary
-    try:
-        responseImage = client.images.generate(
-            prompt= prompt,
-            n=4,
-            size="512x512")
-    except Exception as e:
-        print("\n\n\n")
-        print(e)
-        print("\n\n\n")
-        raise (e)
-        
-    loggerTrace.debug("responseImage: " + str(responseImage))
+    if not gw.single_image:
+        try:
+            responseImage = client.images.generate(
+                prompt= prompt,
+                n=4,
+                size="512x512")
+        except Exception as e:
+            print("\n\n\n")
+            print(e)
+            print("\n\n\n")
+            raise (e)
+            
+        loggerTrace.debug("responseImage: " + str(responseImage))
 
-    image_url = [responseImage.data[0].url] * 4
-    image_url[1] = responseImage.data[1].url
-    image_url[2] = responseImage.data[2].url
-    image_url[3] = responseImage.data[3].url
+        image_url = [responseImage.data[0].url] * 4
+        image_url[1] = responseImage.data[1].url
+        image_url[2] = responseImage.data[2].url
+        image_url[3] = responseImage.data[3].url
+    
+    else: 
+        try:
+            responseImage = client.images.generate(
+                prompt= prompt,
+                model = "dall-e-3",
+                n=1,
+                size="1024x1024"
+                )
+        except Exception as e:
+            print("\n\n\n")
+            print(e)
+            print("\n\n\n")
+            raise (e)
+            
+        loggerTrace.debug("responseImage: " + str(responseImage))
+
+        image_url = [responseImage.data[0].url]
 
     return image_url, modifierUsed
 
@@ -704,14 +738,21 @@ def postProcessImages(imageURLs, imageModifiers, keywords, timestr, filePrefix):
 
     # combine the images into one image
     #widths, heights = zip(*(i.size for i in imgObjects))
-    total_width = 512*2
-    max_height = 512*2 + 50
-    new_im = Image.new('RGB', (total_width, max_height))
-    locations = [(0,0), (512,0), (0,512), (512,512)]
-    count = -1
-    for loc in locations:
-        count += 1
-        new_im.paste(imgObjects[count], loc)
+    if not gw.single_image:
+        total_width = 512*2
+        max_height = 512*2 + 50
+        new_im = Image.new('RGB', (total_width, max_height))
+        locations = [(0,0), (512,0), (0,512), (512,512)]
+        count = -1
+        for loc in locations:
+            count += 1
+            new_im.paste(imgObjects[count], loc)
+    else:
+        total_width = 1024
+        max_height = 1024 + 50
+        new_im = Image.new('RGB', (total_width, max_height))
+        new_im.paste(imgObjects[0], (0,0))
+
 
     # add text at the bottom
     imageCaption = f'{keywords} {imageModifiers}'
@@ -779,21 +820,34 @@ def create_main_window(usingHardwareButton):
     gw.windowMain.title("Speech 2 Picture")
     gw.windowMain.protocol("WM_DELETE_WINDOW", quitButtonPressed)
     
-    # find the screen size and center the window
-    screen_width = gw.windowMain.winfo_screenwidth()
-    screen_height = gw.windowMain.winfo_screenheight()
-    # gw.windowMain.minsize(int(screen_width*.8), int(screen_height*.9))
-    #set window size to a bit less than full screen
-    gw.windowMain.geometry(str(int(screen_width*.95)) + "x" + str(int(screen_height*.95)))
-    #set window position
-    gw.windowMain.geometry("+%d+%d" % (screen_width*0.02, screen_height*0.02))
     gw.windowMain.configure(bg='#52837D')
+    if gw.kiosk_mode:
+        import time
+        time.sleep(.5)
+        gw.windowMain.attributes("-fullscreen", True)
+    else:
+        print ("mike - not running in kiosk mode, don't fill the screen")
+        # find the screen size and center the window
+        screen_width = gw.windowMain.winfo_screenwidth()
+        screen_height = gw.windowMain.winfo_screenheight()
+        # gw.windowMain.minsize(int(screen_width*.8), int(screen_height*.9))
+        #set window size to a bit less than full screen
+        gw.windowMain.geometry(str(int(screen_width*.95)) + "x" + str(int(screen_height*.95)))
+        #set window position
+        gw.windowMain.geometry("+%d+%d" % (screen_width*0.02, screen_height*0.02))
+    
+
+    
    
     # Instructions text
+    if gw.useS3:  QR_download_text = " Scan the QR to download."  # only show this is the QR for downloading is being displayed.
+    else:         QR_download_text = ""
+
     INSTRUCTIONS_TEXT = ('\r\nTRY ME NOW !\rAn Interactive Art Exhibit\n\rWhen you are ready, press and release the'
                     + ' button. The light will flash quickly. You will have 10 seconds to speak a few words to use to'
                     + ' make an AI image. Then wait.'
                     + ' Images will appear shortly.'
+                    + QR_download_text
                     + '\r\nUntil then, enjoy some previous "promptography" images!')
 
     labelTextLong = tk.Label(gw.windowMain, text=INSTRUCTIONS_TEXT, 
@@ -854,6 +908,15 @@ def create_main_window(usingHardwareButton):
     labelForImage.configure(bg='#000000', highlightcolor="#f4ff55", 
                                 highlightthickness=10,) 
     
+    if gw.useS3:
+        # add a label to display the QRcode for the image
+        labelQRForImage = tk.Label(gw.windowMain)
+        
+        # The label will be dimensioned when the image is loaded
+        labelQRForImage.configure(bg='#000000')
+    else: labelQRForImage = None
+
+    
     # set up the grid
     gw.windowMain.grid_columnconfigure(0, weight=99, minsize=0)
     gw.windowMain.grid_columnconfigure(1, weight=99, minsize=10)
@@ -866,6 +929,13 @@ def create_main_window(usingHardwareButton):
 
     labelTextLong.grid(   row=0, column=1, columnspan=4, padx=(0,0),            sticky=tk.EW)
     labelForImage.grid(   row=0, column=6, rowspan=5,    padx=(0,0),   pady=10, sticky=tk.NSEW)
+    if gw.useS3: 
+        if gw.single_image:
+            labelQRForImage.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=10, sticky=tk.NW)
+        else:
+            labelQRForImage.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=10)
+    
+
     labelQR.grid(         row=1, column=2,               padx=(0,10),  pady=10, sticky=tk.NSEW)
     labelQRText.grid(     row=1, column=3,               padx=(10,0),  pady=10, sticky=tk.W)
     labelCreditsText.grid(row=2, column=1, columnspan=4, padx=0,       pady=10, sticky=tk.W)
@@ -885,7 +955,7 @@ def create_main_window(usingHardwareButton):
 
     update_main_window()
 
-    return labelForImage
+    return labelForImage, labelQRForImage
    
 
 def update_main_window():
@@ -1050,7 +1120,7 @@ def display_text_in_message_window(message=None, labelToUse=None):
     gw.windowForMessages.update()
 
 
-def display_image(image_path, label=None):
+def display_image(image_path, label=None, labelQR = None):
     '''
     display an image in the window using the label object
     '''
@@ -1083,16 +1153,34 @@ def display_image(image_path, label=None):
         label.image = photoImage  # Keep a reference to the image to prevent it from being garbage collected
 
         update_main_window()
+        skip_QR = False
 
     except Exception as e:
         print("Error with image file: " + image_path)
         print(e)
         logger.error("Error with image file: " + image_path)
         logger.error(e)
+        skip_QR = True
+
+    #update QR label
+    if labelQR and not skip_QR and gw.useS3: 
+        QRFile = image_path.replace("-image.png", '-s3_url.jpg')
+        if os.path.exists(QRFile):
+            QRimg =  Image.open(QRFile)
+            QR_resize = .15    # user 10% of full image space for the QR code
+            QR_size = int( QR_resize * min(new_width, new_height))
+            QRimg = QRimg.resize((QR_size, QR_size), Image.NEAREST)
+
+            # conver to photoImage
+            QR_photo = ImageTk.PhotoImage(QRimg)
+            labelQR.configure(image = QR_photo)
+            labelQR.image = QR_photo  # keep a reference to prevent garbage collection
+
+            update_main_window()
 
     return label
 
-def display_random_history_image(labelForImageDisplay):
+def display_random_history_image(labelForImageDisplay, labelQRForImage = None):
     '''
     display a random image from the idleDisplayFiles in the window using the label object
     '''
@@ -1114,7 +1202,7 @@ def display_random_history_image(labelForImageDisplay):
                 #add to the list
                 imagesToDisplay.append(file)
         random.shuffle(imagesToDisplay) # randomize the list
-        display_image(idleDisplayFolder + "/" + imagesToDisplay[0], labelForImageDisplay)
+        display_image(idleDisplayFolder + "/" + imagesToDisplay[0], labelForImageDisplay, labelQRForImage)
         
         update_main_window()
 
@@ -1136,6 +1224,8 @@ def parseCommandLineArgs():
     parser.add_argument("-i", "--image", help="use image from file", type=str, default=0) # optional argument
     parser.add_argument("-o", "--onlykeywords", help="use audio directly without extracting keywords", action="store_true") # optional argument
     parser.add_argument("-g", "--gokiosk", help="jump into Kiosk mode", action="store_true") # optional argument
+    parser.add_argument("-q", "--use_s3", help = "try to store image files to AWS S3, and generate QRcodes", action="store_true")
+    parser.add_argument("-m", "--mono_image", help = "create a single, large image using dall-e-3", action="store_true")
     args = parser.parse_args()
 
     # set the debug level
@@ -1149,6 +1239,14 @@ def parseCommandLineArgs():
         loggerTrace.setLevel(logging.DEBUG)
         logger.debug("Debug level set to show prompts and response JSON")
 
+    # set S3 use or not
+    if args.use_s3: rtn.useS3 = True
+    else:           rtn.useS3 = False
+
+    # set flag for single large image (vs default of 4 small)
+    if args.mono_image: rtn.single_image = True
+    else:               rtn.single_image = False
+
 
     # if true, don't ask user for input, rely on hardware buttons
     rtn.isUsingHardwareButtons = False
@@ -1161,7 +1259,10 @@ def parseCommandLineArgs():
         rtn.numLoops = 1
         rtn.autoLoopDelay = 0
         rtn.nextProcessStep = processStep.NoneSpecified
+        rtn.kiosk_mode = True
     else:
+        rtn.kiosk_mode = False
+
         # if we're given a file via the command line then start at that step
         # check in reverse order so that processStartStep will be the latest step for any set of arguments
         rtn.nextProcessStep = processStep.NoneSpecified
@@ -1194,7 +1295,7 @@ def parseCommandLineArgs():
     return rtn
 
 
-def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix):
+def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix, labelQRForImage = None ):
     '''
     main routine to process audio to picture
     '''
@@ -1376,6 +1477,9 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
 
             logToFile.info("Image file: " + newImageFileName)
 
+            if gw.useS3:
+                 result = upload_to_s3_and_generate_qr( file_path = newImageFileName, S3_dir= "idleDisplayFiles")
+
             changeBlinkRate(BLINK_STOP)
             nextProcessStep = processStep.DisplayImage  
 
@@ -1410,7 +1514,7 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
         logger.info("Displaying image...")
 
         try:
-            display_image(newImageFileName, labelForImageDisplay)
+            display_image(newImageFileName, labelForImageDisplay, labelQRForImage)
             display_text_in_message_window() # Hide the message window
         except Exception as e:
             logger.error("Error displaying image: " + newImageFileName, exc_info=True)
@@ -1444,6 +1548,8 @@ def main():
         os.makedirs("errors")
     if not os.path.exists("idleDisplayFiles"):
         os.makedirs("idleDisplayFiles")
+    if not os.path.exists("addToIdleDisplayFiles"):
+        os.makedirs("addToIdleDisplayFiles")
 
     # read configuration file
     if os.path.exists('s2pconfig.json'):
@@ -1466,11 +1572,14 @@ def main():
 
     # args
     settings = parseCommandLineArgs() # get the command line arguments
+    gw.useS3 = settings.useS3         # useS3 added to globals so it can be used as a switch in image creation and display 
+    gw.kiosk_mode = settings.kiosk_mode
+    gw.single_image = settings.single_image
  
     # create the main window
-    labelForImageDisplay = create_main_window(settings.isUsingHardwareButtons)
+    labelForImageDisplay, labelQRForImage = create_main_window(settings.isUsingHardwareButtons)
 
-    display_random_history_image(labelForImageDisplay) # display a random image
+    display_random_history_image(labelForImageDisplay, labelQRForImage) # display a random image
 
     # create the message window
     labelForMessageDisplay = create_message_window()
@@ -1494,7 +1603,7 @@ def main():
 
     lastCommandTime = 0
 
-    display_random_history_image(labelForImageDisplay)
+    display_random_history_image(labelForImageDisplay, labelQRForImage)
 
     while not gw.isQuitting:
 
@@ -1567,7 +1676,7 @@ def main():
                         randomDisplayMode = True 
 
                     if randomDisplayMode:
-                        display_random_history_image(labelForImageDisplay)
+                        display_random_history_image(labelForImageDisplay, labelQRForImage)
 
                     update_main_window()
 
@@ -1597,7 +1706,7 @@ def main():
                             randomDisplayMode = True 
                             
                     if randomDisplayMode:
-                        display_random_history_image(labelForImageDisplay)
+                        display_random_history_image(labelForImageDisplay, labelQRForImage)
 
 
         if settings.isAudioKeywords: 
@@ -1611,7 +1720,7 @@ def main():
             for i in range(0, settings.numLoops, 1):
                 # this is where all the work happens
                 # collect audio, transcribe, summarize, extract keywords, generate images, display images
-                audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix)  # XXX
+                audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix, labelQRForImage)  # XXX
 
                 if not settings.isUsingHardwareButtons and settings.numLoops > 1: 
                     # delay before the next for loop iteration, we don't do this when using hardware buttons

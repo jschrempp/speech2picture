@@ -1,7 +1,6 @@
-creepy photo secret key
-history/
-mnhistory/
-*.wav
-.venv/*
-idleDisplayFiles/*.png
-errors/
+.venv/
+launcher-home.bat
+mikes_changes.txt
+s3_info-user.json
+*.vsd
+test.txt
