@@ -52,7 +52,8 @@ def upload_to_s3_and_generate_qr(file_path,
 
 
     # 2. Create a QR code image from the download URL
-    download_url = "https://"+bucket_name + ".s3.us-east-2.amazonaws.com/" + object_key
+    aws_region = data["AWS_REGION"]
+    download_url = "https://" + bucket_name + ".s3." + aws_region + ".amazonaws.com/" + object_key
 
     try:
         qr = qrcode.QRCode(
