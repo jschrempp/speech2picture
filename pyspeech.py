@@ -952,10 +952,10 @@ def create_main_window(usingHardwareButton):
     labelCommandHint.grid(row=4, column=0, columnspan=3, padx=10,      pady=10, sticky=tk.W)
 
     if usingHardwareButton:
-        # remove buttons from the window
+        # remove quit button from the window (but keep window button for kiosk mode)
         buttonQuit.grid_remove()
-        buttonWindow.grid_remove()
-    elif not gw.kiosk_mode:
+    
+    if not gw.kiosk_mode:
         # hide window button when not in kiosk mode
         buttonWindow.grid_remove()
 
