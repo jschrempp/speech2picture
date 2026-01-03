@@ -892,6 +892,11 @@ def create_main_window(usingHardwareButton):
     buttonQuit = tk.Button(gw.windowMain, text="Quit", command=quitButtonPressed,
                             font=("Helvetica", 24), 
                             bg='#FF0000', fg='#000000')
+    
+    # add a window button to exit fullscreen (only shown in kiosk mode)
+    buttonWindow = tk.Button(gw.windowMain, text="Window", command=exitFullscreenButtonPressed,
+                            font=("Helvetica", 24), 
+                            bg='#FFA500', fg='#000000')
 
 
     labelCommandHint = tk.Label(gw.windowMain, text="Say 'show commands' for a list of commands.",
@@ -942,12 +947,17 @@ def create_main_window(usingHardwareButton):
     labelQR.grid(         row=1, column=2,               padx=(0,10),  pady=10, sticky=tk.NSEW)
     labelQRText.grid(     row=1, column=3,               padx=(10,0),  pady=10, sticky=tk.W)
     labelCreditsText.grid(row=2, column=1, columnspan=4, padx=0,       pady=10, sticky=tk.W)
-    buttonQuit.grid(      row=3, column=2, columnspan=3, padx=0,       pady=20, sticky=tk.E)
+    buttonWindow.grid(    row=3, column=2, columnspan=1, padx=(0,5),   pady=20, sticky=tk.E)
+    buttonQuit.grid(      row=3, column=3, columnspan=2, padx=(5,0),   pady=20, sticky=tk.E)
     labelCommandHint.grid(row=4, column=0, columnspan=3, padx=10,      pady=10, sticky=tk.W)
 
     if usingHardwareButton:
-        # remove button from the window
+        # remove buttons from the window
         buttonQuit.grid_remove()
+        buttonWindow.grid_remove()
+    elif not gw.kiosk_mode:
+        # hide window button when not in kiosk mode
+        buttonWindow.grid_remove()
 
     '''
     # good debug code
@@ -966,6 +976,23 @@ def update_main_window():
 
     gw.windowMain.update_idletasks()
     gw.windowMain.update()
+
+def exitFullscreenButtonPressed():
+    '''exit fullscreen mode and resize window'''
+    global gw
+    
+    # Exit fullscreen
+    gw.windowMain.attributes("-fullscreen", False)
+    
+    # Resize and center the window
+    screen_width = gw.windowMain.winfo_screenwidth()
+    screen_height = gw.windowMain.winfo_screenheight()
+    window_width = int(screen_width * 0.95)
+    window_height = int(screen_height * 0.95)
+    x_position = int(screen_width * 0.025)
+    y_position = int(screen_height * 0.025)
+    
+    gw.windowMain.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
 
 def quitButtonPressed():
     '''quit the program'''
