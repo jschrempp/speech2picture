@@ -820,6 +820,9 @@ def create_main_window(usingHardwareButton):
     gw.windowMain.title("Speech 2 Picture")
     gw.windowMain.protocol("WM_DELETE_WINDOW", quitButtonPressed)
     
+    # Bind ESC key to exit fullscreen/kiosk mode
+    gw.windowMain.bind("<Escape>", lambda event: quitButtonPressed())
+    
     gw.windowMain.configure(bg='#52837D')
     if gw.kiosk_mode:
         import time
@@ -1196,6 +1199,7 @@ def display_random_history_image(labelForImageDisplay, labelQRForImage = None):
         idleDisplayFolder = "./idleDisplayFiles"
         idleDisplayFiles = os.listdir(idleDisplayFolder)
         #remove any non-png files from Files
+        # note that QR code files are .jpg so they will be ignored here
         imagesToDisplay = []
         for file in idleDisplayFiles:
             if file.endswith(".png"):
@@ -1240,12 +1244,16 @@ def parseCommandLineArgs():
         logger.debug("Debug level set to show prompts and response JSON")
 
     # set S3 use or not
-    if args.use_s3: rtn.useS3 = True
-    else:           rtn.useS3 = False
+    if args.use_s3: 
+        rtn.useS3 = True
+    else:           
+        rtn.useS3 = False
 
     # set flag for single large image (vs default of 4 small)
-    if args.mono_image: rtn.single_image = True
-    else:               rtn.single_image = False
+    if args.mono_image: 
+        rtn.single_image = True
+    else:               
+        rtn.single_image = False
 
 
     # if true, don't ask user for input, rely on hardware buttons
