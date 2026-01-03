@@ -35,7 +35,8 @@ to do three things:
                 }
         - Click Save changes. You'll see a warning that the bucket is now public
 
-3. Set up a key pair for that is used to access the account when writing the files
+3. Set up a key pair for a user that is used to access the account when writing the files
+    - Navigate to IAM (Identity and Access Management)
     - In the navigation pane, choose Users, and then select the desired user or create a new one.
     - On the user's summary page, select the Security credentials tab.
     - In the Access keys section, choose Create access key.
@@ -43,6 +44,11 @@ to do three things:
     - Download the .csv file containing the Access key ID and Secret access key, or copy 
       them directly from the console. 
       Important: This is the only time you can view the secret key, so store it securely.
+
+      In IAM select Policy / Create. Select S3. Actions Allowed PutObject. Specify 
+      Resources / Object - click ARN. Add your bucket name. Select Any Object Name.
+      
+      You may have to set up a group in IAM and give that group 
 
 4. Set up the permissions file
     - open the file s3_info.json

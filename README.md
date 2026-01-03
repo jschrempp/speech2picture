@@ -95,7 +95,8 @@ Useful options:
 
 -h Hardware ... Goes into a loop waiting for a button to be pressed (a pin to be pulled low)
 
--g Goes into Kiosk mode, useful for autostart installations
+-g Goes into Kiosk mode, useful for autostart installations. If the program goes full screen
+   then use ESC to kill it.
 
 -q Store images in AWS S3 cloud and display QR codes (requires AWS setup)
 
