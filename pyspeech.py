@@ -895,8 +895,8 @@ def create_main_window(usingHardwareButton):
     
     # add a window button to exit fullscreen (only shown in kiosk mode)
     buttonWindow = tk.Button(gw.windowMain, text="Window", command=exitFullscreenButtonPressed,
-                            font=("Helvetica", 24), 
-                            bg='#FFA500', fg='#000000')
+                            font=("Helvetica", 12), 
+                            bg='#D3D3D3', fg='#000000')
 
 
     labelCommandHint = tk.Label(gw.windowMain, text="Say 'show commands' for a list of commands.",
