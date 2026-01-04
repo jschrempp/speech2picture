@@ -6,6 +6,10 @@
 # For autostart on (raspbian 2023-10-10 64 bit) 
 #   sudo cp /home/{your user}/speech2picture/s2p.desktop  /etc/xdg/autostart
 #
+# For autostart on Debian GNU/Linux 12 (bookworm)
+#   create .config/autostart
+#   in that folder create a file s2p.desktop (the contents of the file are this file)
+#
 # in the RPi world things might change for autostart. This URL is a good reference.
 # https://forums.raspberrypi.com/viewtopic.php?t=294014 
 #
@@ -18,8 +22,8 @@ Name=s2pautostart
 Type=Application
 Comment=Speech Picture
 Categories=Application
-Path=/home/{your user}
-Exec=lxterminal -e "bash /home/{your user}/speech2picture/s2p.sh"
+Path=/home/jbs
+Exec=lxterminal --working-directory=/home/{your user}/speech2picture -e "bash -c ./s2p.sh; exec bash"
 Terminal=true
 StartupNotify=false
 X-KeepTerminal=true
