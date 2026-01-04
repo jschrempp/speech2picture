@@ -826,7 +826,7 @@ def create_main_window(usingHardwareButton):
     gw.windowMain.configure(bg='#52837D')
     if gw.kiosk_mode:
         import time
-        time.sleep(.5)
+        time.sleep(4.0)  # Give window manager time to fully initialize on boot
         gw.windowMain.attributes("-fullscreen", True)
     else:
         print ("mike - not running in kiosk mode, don't fill the screen")
