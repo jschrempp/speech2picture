@@ -1273,6 +1273,7 @@ def parseCommandLineArgs():
     # set S3 use or not
     if args.use_s3: 
         rtn.useS3 = True
+        print("\r\nUsing AWS S3 for image storage and QR code generation\r\n")
     else:           
         rtn.useS3 = False
 
