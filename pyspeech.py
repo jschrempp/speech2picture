@@ -948,13 +948,7 @@ def create_main_window(usingHardwareButton):
 
     labelTextLong.grid(   row=0, column=1, columnspan=4, padx=(0,0),            sticky=tk.EW)
     labelForImage.grid(   row=0, column=6, rowspan=5,    padx=(0,0),   pady=10, sticky=tk.NSEW)
-    if gw.useS3: 
-        if gw.single_image:
-            labelQRForImage.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=(10,0), sticky=tk.NW)
-            labelQRForImageText.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=(10,0), sticky=tk.NW)
-        else:
-            labelQRForImage.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=(10,0))
-            labelQRForImageText.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=(10,0))
+    # QR code and text will be positioned using place() in display_image function
     
 
     labelQR.grid(         row=1, column=2,               padx=(0,10),  pady=10, sticky=tk.NSEW)
@@ -1218,6 +1212,9 @@ def display_image(image_path, label=None, labelQR = None, labelQRText = None):
             QR_photo = ImageTk.PhotoImage(QRimg)
             labelQR.configure(image = QR_photo)
             labelQR.image = QR_photo  # keep a reference to prevent garbage collection
+            
+            # Position QR code at lower right corner of main image
+            labelQR.place(in_=label, relx=1.0, rely=1.0, anchor=tk.SE)
             
             # Position the text label below the QR code
             if labelQRText:
