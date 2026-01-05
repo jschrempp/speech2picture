@@ -921,8 +921,19 @@ def create_main_window(usingHardwareButton):
         labelQRForImage = tk.Label(gw.windowMain)
         
         # The label will be dimensioned when the image is loaded
-        labelQRForImage.configure(bg='#000000')
-    else: labelQRForImage = None
+        labelQRForImage.configure(bg='#000000', highlightthickness=1, highlightbackground='#000000')
+        
+        # add a label for QR code instructions
+        labelQRForImageText = tk.Label(gw.windowMain, text="scan to download image",
+                         font=("Helvetica", 10),
+                         justify=tk.CENTER,
+                         bg='#FFFFFF',
+                         fg='#000000',
+                         highlightthickness=1,
+                         highlightbackground='#000000')
+    else: 
+        labelQRForImage = None
+        labelQRForImageText = None
 
     
     # set up the grid
@@ -939,9 +950,11 @@ def create_main_window(usingHardwareButton):
     labelForImage.grid(   row=0, column=6, rowspan=5,    padx=(0,0),   pady=10, sticky=tk.NSEW)
     if gw.useS3: 
         if gw.single_image:
-            labelQRForImage.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=10, sticky=tk.NW)
+            labelQRForImage.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=(10,0), sticky=tk.NW)
+            labelQRForImageText.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=(10,0), sticky=tk.NW)
         else:
-            labelQRForImage.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=10)
+            labelQRForImage.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=(10,0))
+            labelQRForImageText.grid( row=0, column=6, rowspan=5,    padx=(0,0),   pady=(10,0))
     
 
     labelQR.grid(         row=1, column=2,               padx=(0,10),  pady=10, sticky=tk.NSEW)
@@ -968,7 +981,7 @@ def create_main_window(usingHardwareButton):
 
     update_main_window()
 
-    return labelForImage, labelQRForImage
+    return labelForImage, labelQRForImage, labelQRForImageText
    
 
 def update_main_window():
@@ -1150,7 +1163,7 @@ def display_text_in_message_window(message=None, labelToUse=None):
     gw.windowForMessages.update()
 
 
-def display_image(image_path, label=None, labelQR = None):
+def display_image(image_path, label=None, labelQR = None, labelQRText = None):
     '''
     display an image in the window using the label object
     '''
@@ -1205,12 +1218,17 @@ def display_image(image_path, label=None, labelQR = None):
             QR_photo = ImageTk.PhotoImage(QRimg)
             labelQR.configure(image = QR_photo)
             labelQR.image = QR_photo  # keep a reference to prevent garbage collection
+            
+            # Position the text label below the QR code
+            if labelQRText:
+                labelQRText.configure(wraplength=QR_size)
+                labelQRText.place(in_=labelQR, relx=0.5, rely=1.0, anchor=tk.N, width=QR_size)
 
             update_main_window()
 
     return label
 
-def display_random_history_image(labelForImageDisplay, labelQRForImage = None):
+def display_random_history_image(labelForImageDisplay, labelQRForImage = None, labelQRForImageText = None):
     '''
     display a random image from the idleDisplayFiles in the window using the label object
     '''
@@ -1233,7 +1251,7 @@ def display_random_history_image(labelForImageDisplay, labelQRForImage = None):
                 #add to the list
                 imagesToDisplay.append(file)
         random.shuffle(imagesToDisplay) # randomize the list
-        display_image(idleDisplayFolder + "/" + imagesToDisplay[0], labelForImageDisplay, labelQRForImage)
+        display_image(idleDisplayFolder + "/" + imagesToDisplay[0], labelForImageDisplay, labelQRForImage, labelQRForImageText)
         
         update_main_window()
 
@@ -1331,7 +1349,7 @@ def parseCommandLineArgs():
     return rtn
 
 
-def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix, labelQRForImage = None ):
+def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix, labelQRForImage = None, labelQRForImageText = None ):
     '''
     main routine to process audio to picture
     '''
@@ -1550,7 +1568,7 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
         logger.info("Displaying image...")
 
         try:
-            display_image(newImageFileName, labelForImageDisplay, labelQRForImage)
+            display_image(newImageFileName, labelForImageDisplay, labelQRForImage, labelQRForImageText)
             display_text_in_message_window() # Hide the message window
         except Exception as e:
             logger.error("Error displaying image: " + newImageFileName, exc_info=True)
@@ -1613,9 +1631,9 @@ def main():
     gw.single_image = settings.single_image
  
     # create the main window
-    labelForImageDisplay, labelQRForImage = create_main_window(settings.isUsingHardwareButtons)
+    labelForImageDisplay, labelQRForImage, labelQRForImageText = create_main_window(settings.isUsingHardwareButtons)
 
-    display_random_history_image(labelForImageDisplay, labelQRForImage) # display a random image
+    display_random_history_image(labelForImageDisplay, labelQRForImage, labelQRForImageText) # display a random image
 
     # create the message window
     labelForMessageDisplay = create_message_window()
@@ -1639,7 +1657,7 @@ def main():
 
     lastCommandTime = 0
 
-    display_random_history_image(labelForImageDisplay, labelQRForImage)
+    display_random_history_image(labelForImageDisplay, labelQRForImage, labelQRForImageText)
 
     while not gw.isQuitting:
 
@@ -1712,7 +1730,7 @@ def main():
                         randomDisplayMode = True 
 
                     if randomDisplayMode:
-                        display_random_history_image(labelForImageDisplay, labelQRForImage)
+                        display_random_history_image(labelForImageDisplay, labelQRForImage, labelQRForImageText)
 
                     update_main_window()
 
@@ -1742,7 +1760,7 @@ def main():
                             randomDisplayMode = True 
                             
                     if randomDisplayMode:
-                        display_random_history_image(labelForImageDisplay, labelQRForImage)
+                        display_random_history_image(labelForImageDisplay, labelQRForImage, labelQRForImageText)
 
 
         if settings.isAudioKeywords: 
@@ -1756,7 +1774,7 @@ def main():
             for i in range(0, settings.numLoops, 1):
                 # this is where all the work happens
                 # collect audio, transcribe, summarize, extract keywords, generate images, display images
-                audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix, labelQRForImage)  # XXX
+                audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix, labelQRForImage, labelQRForImageText)  # XXX
 
                 if not settings.isUsingHardwareButtons and settings.numLoops > 1: 
                     # delay before the next for loop iteration, we don't do this when using hardware buttons
