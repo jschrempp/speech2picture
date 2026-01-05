@@ -27,3 +27,4 @@ Exec=lxterminal --working-directory=/home/{your user}/speech2picture -e "bash -c
 Terminal=true
 StartupNotify=false
 X-KeepTerminal=true
+X-GNOME-Autostart-Delay=10
