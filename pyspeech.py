@@ -1213,8 +1213,8 @@ def display_image(image_path, label=None, labelQR = None, labelQRText = None):
             labelQR.configure(image = QR_photo)
             labelQR.image = QR_photo  # keep a reference to prevent garbage collection
             
-            # Position QR code at lower right corner of main image
-            labelQR.place(in_=label, relx=1.0, rely=1.0, anchor=tk.SE)
+            # Position QR code at lower right corner of main image, moved up 10 pixels
+            labelQR.place(in_=label, relx=1.0, rely=1.0, anchor=tk.SE, y=-10)
             
             # Position the text label below the QR code
             if labelQRText:
