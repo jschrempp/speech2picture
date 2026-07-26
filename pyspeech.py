@@ -169,17 +169,25 @@ import openai
 S2P_VERSION = "1.2"
 
 g_isMacOS = False
+g_isRPi = False
 if (platform.system() == "Darwin"):
     g_isMacOS = True
 else:
-    print ("Not MacOS")
+    # Check if running on Raspberry Pi
+    try:
+        with open('/proc/device-tree/model', 'r') as f:
+            model = f.read().lower()
+            g_isRPi = 'raspberry pi' in model
+    except:
+        g_isRPi = False
+    print(f"Running on {'Raspberry Pi' if g_isRPi else 'non-RPi Linux'}")
 
 # import platform specific libraries
 if g_isMacOS:
     import sounddevice
     import soundfile
 
-else:
+elif g_isRPi:
     # --------- import for Raspberry Pi -----------------------------------------
     import pyaudio
     import wave
@@ -187,6 +195,8 @@ else:
     import RPi.GPIO as GPIO
     import threading
     from queue import Queue
+else:
+    logger.warning("Unsupported platform: Not macOS or Raspberry Pi")
 
 
 
@@ -484,20 +494,21 @@ def changeBlinkRate(blinkRate):
 
 def recordAudioFromMicrophone(duration):
     '''record duration seconds of audio from the default microphone to a file and return the sound file name'''
-
     soundFileName = 'recording.wav'
     
-    # delete file recording.wav if it exists
     try:
         os.remove(soundFileName)
-    except:
-        pass # do nothing   
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.warning(f"Failed to remove old recording: {str(e)}")
     
-    if g_isMacOS:
-        # print the devices
-        # print(sd.query_devices())  # in case you have trouble with the devices
+    try:
+        if g_isMacOS:
+            # print the devices
+            # print(sd.query_devices())  # in case you have trouble with the devices
 
-        # Set the sample rate and number of channels for the recording
+            # Set the sample rate and number of channels for the recording
         sample_rate = int(sounddevice.query_devices(1)['default_samplerate'])
         channels = 1
 
@@ -517,50 +528,53 @@ def recordAudioFromMicrophone(duration):
         # Save the recording to a WAV file
         soundfile.write(soundFileName, recording, sample_rate)
 
-    else:
-
+    elif g_isRPi:
         # RPi
- 
-        # all this crap because the ALSA library can't police itself
-        ERROR_HANDLER_FUNC = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)
-        def py_error_handler(filename, line, function, err, fmt):
-            pass #nothing to see here
-        c_error_handler = ERROR_HANDLER_FUNC(py_error_handler)
-        asound = cdll.LoadLibrary('libasound.so')
-        # Set error handler
-        asound.snd_lib_error_set_handler(c_error_handler)
-        # Initialize PyAudio
-        pa = pyaudio.PyAudio()
-        # Reset to default error handler
-        asound.snd_lib_error_set_handler(None)
-        # now on with the show, sheesh
+        try:
+            # all this crap because the ALSA library can't police itself
+            ERROR_HANDLER_FUNC = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)
+            def py_error_handler(filename, line, function, err, fmt):
+                pass #nothing to see here
+            c_error_handler = ERROR_HANDLER_FUNC(py_error_handler)
+            asound = cdll.LoadLibrary('libasound.so')
+            # Set error handler
+            asound.snd_lib_error_set_handler(c_error_handler)
+            # Initialize PyAudio
+            pa = pyaudio.PyAudio()
+            # Reset to default error handler
+            asound.snd_lib_error_set_handler(None)
+            # now on with the show, sheesh
 
-        stream = pa.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=44100,
-            input=True,
-            frames_per_buffer=1024
+            stream = pa.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=44100,
+                input=True,
+                frames_per_buffer=1024
             ) #,input_device_index=2)
 
-        wf = wave.open(soundFileName,"wb")
-        wf.setnchannels(1)
-        wf.setsampwidth(pa.get_sample_size(pyaudio.paInt16))
-        wf.setframerate(44100)
-
-        # Write the audio data to the file
-        for i in range(0, int(44100/1024*10)):
-
-            # Get the audio data from the microphone
-            data = stream.read(1024)
+            wf = wave.open(soundFileName,"wb")
+            wf.setnchannels(1)
+            wf.setsampwidth(pa.get_sample_size(pyaudio.paInt16))
+            wf.setframerate(44100)
 
             # Write the audio data to the file
-            wf.writeframes(data)
+            for i in range(0, int(44100/1024*10)):
+                # Get the audio data from the microphone
+                data = stream.read(1024)
+                # Write the audio data to the file
+                wf.writeframes(data)
 
-        # Close the microphone and the wave file
-        stream.close()
-        wf.close()
+            # Close the microphone and the wave file
+            stream.close()
+            wf.close()
+        except Exception as e:
+            logger.error(f"Failed to record audio on RPi: {str(e)}")
+            raise RuntimeError(f"Audio recording failed: {str(e)}")
+    else:
+        raise RuntimeError("Unsupported platform for audio recording")
 
+    logger.info(f"Successfully recorded audio to {soundFileName}")
     return soundFileName
 
 
@@ -660,44 +674,43 @@ def getAbstractForImageGen(inputText):
 
 def getImageURL(phrase):
     '''get images and return the urls'''
+    try:
+        # pick random modifiers
+        random.shuffle(IMAGE_MODIFIERS)
+      
+        # create the prompt for the image generator
+        modifierUsed = IMAGE_MODIFIERS[0]
+        # if phrase contains stylistic information
+        if ("in the style of" in phrase.lower() 
+                or "as a painting by" in phrase.lower() 
+                or "as a photograph by" in phrase.lower() 
+                or "as a sketch by" in phrase.lower() 
+                or "as a watercolor by" in phrase.lower()):
+            modifierUsed = ""
+            prompt = f"Generate a picture WITHOUT ANY TEXT OR WRITING IN THE PICTURE for the following: '{phrase}'"
+        else:
+            # add a random modifier to the prompt
+            prompt = f"Generate a picture {modifierUsed} WITHOUT ANY TEXT OR WRITING IN THE PICTURE for the following: '{phrase}'"
 
-    # pick random modifiers
-    random.shuffle(IMAGE_MODIFIERS)
-  
-    # create the prompt for the image generator
-    modifierUsed = IMAGE_MODIFIERS[0]
-    # if phrase contains stylistic information
-    if ("in the style of" in phrase.lower() 
-            or "as a painting by" in phrase.lower() 
-            or "as a photograph by" in phrase.lower() 
-            or "as a sketch by" in phrase.lower() 
-            or "as a watercolor by" in phrase.lower()):
-        modifierUsed = ""
-        prompt = f"Generate a picture WITHOUT ANY TEXT OR WRITING IN THE PICTURE for the following: '{phrase}'"
-    else:
-        # add a random modifier to the prompt
-        prompt = f"Generate a picture {modifierUsed} WITHOUT ANY TEXT OR WRITING IN THE PICTURE for the following: '{phrase}'"
+        logger.info(f"Generating image with prompt: {prompt}")
 
-    logger.info("Generating image...")
-    logger.info("image prompt: " + prompt)
-
-    # use openai to generate a picture based on the summary
-    if not gw.single_image:
-        try:
-            responseImage = client.images.generate(
-                prompt= prompt,
-                n=4,
-                size="512x512")
-        except Exception as e:
-            print("\n\n\n")
-            print(e)
-            print("\n\n\n")
-            raise (e)
-            
+        # use openai to generate a picture based on the summary
+        responseImage = client.images.generate(
+            prompt=prompt,
+            n=4 if not gw.single_image else 1,
+            size="512x512" if not gw.single_image else "1024x1024",
+            model=None if not gw.single_image else "dall-e-3"
+        )
+        
         loggerTrace.debug("responseImage: " + str(responseImage))
 
-        image_url = [responseImage.data[0].url] * 4
-        image_url[1] = responseImage.data[1].url
+        image_urls = [img.url for img in responseImage.data]
+        return image_urls, modifierUsed
+
+    except Exception as e:
+        logger.error(f"Image generation failed: {str(e)}")
+        display_text_in_message_window(f"Image generation failed: {str(e)}")
+        raise RuntimeError(f"Image generation failed: {str(e)}")
         image_url[2] = responseImage.data[2].url
         image_url[3] = responseImage.data[3].url
     
