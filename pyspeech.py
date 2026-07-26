@@ -161,6 +161,8 @@ import random
 import tkinter as tk
 import json
 import string
+import threading
+from queue import Queue
 from enum import IntEnum
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 from s3_and_qr import upload_to_s3_and_generate_qr
@@ -224,10 +226,8 @@ elif config.isRPi:
     import wave
     from ctypes import *
     import RPi.GPIO as GPIO
-    import threading
-    from queue import Queue
 else:
-    logger.warning("Unsupported platform: Not macOS or Raspberry Pi")
+    print("WARNING: Unsupported platform - not macOS or Raspberry Pi")
 
 
 
@@ -359,6 +359,90 @@ gw = globalWindowVars()
 
 # XXX client = OpenAI()  # must have set up your key in the shell as noted in comments above
 client = openai
+
+
+def check_dependencies():
+    """Check for required hardware and software dependencies at startup.
+
+    Prints clear error messages and returns False if any critical dependency
+    is missing.  Warnings are printed for optional dependencies.
+    """
+    import importlib.util
+
+    all_ok = True
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    # --- OpenAI API key --------------------------------------------------------
+    api_key = os.environ.get("OPENAI_API_KEY", "")
+    secret_key_file = "creepy photo secret key"
+    if not api_key and os.path.exists(secret_key_file):
+        try:
+            with open(secret_key_file, "r") as f:
+                api_key = f.read().strip()
+        except Exception:
+            pass
+    if not api_key:
+        issues.append(
+            "OpenAI API key not found.  Set the OPENAI_API_KEY environment "
+            "variable or create a file named 'creepy photo secret key' "
+            "containing your key."
+        )
+        all_ok = False
+
+    # --- Pillow (PIL) ----------------------------------------------------------
+    if importlib.util.find_spec("PIL") is None:
+        issues.append("Pillow is not installed.  Run: pip install Pillow")
+        all_ok = False
+
+    # --- tkinter (GUI) ---------------------------------------------------------
+    if importlib.util.find_spec("tkinter") is None:
+        issues.append(
+            "tkinter is not available.  On macOS ensure python is from python.org "
+            "(the system python may lack tkinter).  On Linux: "
+            "sudo apt-get install python3-tk"
+        )
+        all_ok = False
+
+    # --- Platform-specific audio -----------------------------------------------
+    if config.isMacOS:
+        if importlib.util.find_spec("sounddevice") is None:
+            issues.append(
+                "sounddevice is not installed.  Run: pip install sounddevice"
+            )
+            all_ok = False
+        if importlib.util.find_spec("soundfile") is None:
+            issues.append(
+                "soundfile is not installed.  Run: pip install soundfile"
+            )
+            all_ok = False
+    elif config.isRPi:
+        if importlib.util.find_spec("pyaudio") is None:
+            issues.append(
+                "pyaudio is not installed.  Run: pip install pyaudio"
+            )
+            all_ok = False
+        if importlib.util.find_spec("RPi") is None:
+            issues.append(
+                "RPi.GPIO is not installed.  Run: pip install RPi.GPIO"
+            )
+            all_ok = False
+
+    # --- Optional: S3 / QR support ---------------------------------------------
+    if importlib.util.find_spec("s3_and_qr") is None:
+        warnings.append(
+            "s3_and_qr module not found.  S3 upload and QR code features "
+            "will be unavailable."
+        )
+
+    # --- Report ----------------------------------------------------------------
+    for w in warnings:
+        print(f"WARNING: {w}")
+    for i in issues:
+        print(f"ERROR: {i}")
+
+    return all_ok
+
 
 # set up logging
 logger = logging.getLogger(__name__) # parameter: -d 1
@@ -541,70 +625,73 @@ def recordAudioFromMicrophone(duration):
             # print(sd.query_devices())  # in case you have trouble with the devices
 
             # Set the sample rate and number of channels for the recording
-        sample_rate = int(sounddevice.query_devices(1)['default_samplerate'])
-        channels = 1
+            sample_rate = int(sounddevice.query_devices(1)['default_samplerate'])
+            channels = 1
 
-        logger.debug('sample_rate: %d; channels: %d', sample_rate, channels)
+            logger.debug('sample_rate: %d; channels: %d', sample_rate, channels)
 
-        logger.info("Recording %d seconds...", duration)
-        # Record audio from the default microphone
-        recording = sounddevice.rec(
-            int(duration * sample_rate), 
-            samplerate=sample_rate, 
-            channels=channels
-            )
+            logger.info("Recording %d seconds...", duration)
+            # Record audio from the default microphone
+            recording = sounddevice.rec(
+                int(duration * sample_rate), 
+                samplerate=sample_rate, 
+                channels=channels
+                )
 
-        # Wait for the recording to finish
-        sounddevice.wait()
+            # Wait for the recording to finish
+            sounddevice.wait()
 
-        # Save the recording to a WAV file
-        soundfile.write(soundFileName, recording, sample_rate)
+            # Save the recording to a WAV file
+            soundfile.write(soundFileName, recording, sample_rate)
 
-    elif config.isRPi:
-        # RPi
-        try:
-            # all this crap because the ALSA library can't police itself
-            ERROR_HANDLER_FUNC = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)
-            def py_error_handler(filename, line, function, err, fmt):
-                pass #nothing to see here
-            c_error_handler = ERROR_HANDLER_FUNC(py_error_handler)
-            asound = cdll.LoadLibrary('libasound.so')
-            # Set error handler
-            asound.snd_lib_error_set_handler(c_error_handler)
-            # Initialize PyAudio
-            pa = pyaudio.PyAudio()
-            # Reset to default error handler
-            asound.snd_lib_error_set_handler(None)
-            # now on with the show, sheesh
+        elif config.isRPi:
+            # RPi
+            try:
+                # all this crap because the ALSA library can't police itself
+                ERROR_HANDLER_FUNC = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int, c_char_p)
+                def py_error_handler(filename, line, function, err, fmt):
+                    pass #nothing to see here
+                c_error_handler = ERROR_HANDLER_FUNC(py_error_handler)
+                asound = cdll.LoadLibrary('libasound.so')
+                # Set error handler
+                asound.snd_lib_error_set_handler(c_error_handler)
+                # Initialize PyAudio
+                pa = pyaudio.PyAudio()
+                # Reset to default error handler
+                asound.snd_lib_error_set_handler(None)
+                # now on with the show, sheesh
 
-            stream = pa.open(
-                format=pyaudio.paInt16,
-                channels=1,
-                rate=44100,
-                input=True,
-                frames_per_buffer=1024
-            ) #,input_device_index=2)
+                stream = pa.open(
+                    format=pyaudio.paInt16,
+                    channels=1,
+                    rate=44100,
+                    input=True,
+                    frames_per_buffer=1024
+                ) #,input_device_index=2)
 
-            wf = wave.open(soundFileName,"wb")
-            wf.setnchannels(1)
-            wf.setsampwidth(pa.get_sample_size(pyaudio.paInt16))
-            wf.setframerate(44100)
+                wf = wave.open(soundFileName,"wb")
+                wf.setnchannels(1)
+                wf.setsampwidth(pa.get_sample_size(pyaudio.paInt16))
+                wf.setframerate(44100)
 
-            # Write the audio data to the file
-            for i in range(0, int(44100/1024*10)):
-                # Get the audio data from the microphone
-                data = stream.read(1024)
                 # Write the audio data to the file
-                wf.writeframes(data)
+                for i in range(0, int(44100/1024*10)):
+                    # Get the audio data from the microphone
+                    data = stream.read(1024)
+                    # Write the audio data to the file
+                    wf.writeframes(data)
 
-            # Close the microphone and the wave file
-            stream.close()
-            wf.close()
-        except Exception as e:
-            logger.error(f"Failed to record audio on RPi: {str(e)}")
-            raise RuntimeError(f"Audio recording failed: {str(e)}")
-    else:
-        raise RuntimeError("Unsupported platform for audio recording")
+                # Close the microphone and the wave file
+                stream.close()
+                wf.close()
+            except Exception as e:
+                logger.error(f"Failed to record audio on RPi: {str(e)}")
+                raise RuntimeError(f"Audio recording failed: {str(e)}")
+        else:
+            raise RuntimeError("Unsupported platform for audio recording")
+    except Exception as e:
+        logger.error(f"Failed to record audio: {str(e)}")
+        raise RuntimeError(f"Audio recording failed: {str(e)}")
 
     logger.info(f"Successfully recorded audio to {soundFileName}")
     return soundFileName
@@ -1634,8 +1721,14 @@ def main():
     #
     #
     # ----------------------
-   
+
     global gw # so that the changes made in here will affect the global variables
+
+    # --- Startup dependency check ----------------------------------------------
+    if not check_dependencies():
+        print("\nFATAL: One or more required dependencies are missing.")
+        print("Please fix the errors above and try again.")
+        sys.exit(1)
 
     # create a directory if one does not exist
     if not os.path.exists("history"):
