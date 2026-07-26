@@ -166,28 +166,59 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 from s3_and_qr import upload_to_s3_and_generate_qr
 
 import openai
-S2P_VERSION = "1.2"
 
-g_isMacOS = False
-g_isRPi = False
+# Initialize global config
+class Config:
+    """Central configuration class to replace global variables.
+
+    Thread safety: All attributes are written once at startup (main thread)
+    and read-only thereafter.  The _lock is available for any future mutable
+    state that needs cross-thread protection.
+    """
+    def __init__(self):
+        self.isMacOS = False
+        self.isRPi = False
+        self.version = "1.2"
+        self.useS3 = False
+        self.kiosk_mode = False
+        self.single_image = False
+        self.isQuitting = False
+
+        # Window references (only accessed from the main / tkinter thread)
+        self.windowMain = None
+        self.windowForMessages = None
+        self.windowForStatus = None
+
+        # Lock for protecting any future mutable shared state
+        self._lock = threading.Lock()
+
+config = Config()
+
+# Thread-safe queue for LED blink control (RPi only).
+# Initialized to None so it always exists; the real Queue is created
+# inside the RPi-specific block below.
+qBlinkControl = None
+led_thread1 = None
+
+# Detect platform
 if (platform.system() == "Darwin"):
-    g_isMacOS = True
+    config.isMacOS = True
 else:
     # Check if running on Raspberry Pi
     try:
         with open('/proc/device-tree/model', 'r') as f:
             model = f.read().lower()
-            g_isRPi = 'raspberry pi' in model
+            config.isRPi = 'raspberry pi' in model
     except:
-        g_isRPi = False
-    print(f"Running on {'Raspberry Pi' if g_isRPi else 'non-RPi Linux'}")
+        config.isRPi = False
+    print(f"Running on {'Raspberry Pi' if config.isRPi else 'non-RPi Linux'}")
 
 # import platform specific libraries
-if g_isMacOS:
+if config.isMacOS:
     import sounddevice
     import soundfile
 
-elif g_isRPi:
+elif config.isRPi:
     # --------- import for Raspberry Pi -----------------------------------------
     import pyaudio
     import wave
@@ -252,7 +283,7 @@ BLINK4 = (0.2, 0.2)
 BLINK_STOP = (-1, -1)
 BLINK_DIE = (-2, -2)
 
-if not g_isMacOS:
+if not config.isMacOS:
     # Define the GPIO pins for RPi
     LED_RED = 8
     BUTTON_GO = 10
@@ -347,7 +378,7 @@ root = tk.Tk()
 root.withdraw()  # Hide the root window
 
 
-if not g_isMacOS:
+if not config.isMacOS:
     # --------- Raspberry Pi specific code -----------------------------------------
     logger.info("Setting up GPIO pins")
 
@@ -362,7 +393,8 @@ if not g_isMacOS:
 
     # Define a function to blink the LED
     # This function is run on a thread
-    # Communicate by putting a tuple of (onTime, offTime) in the qBlinkControl queue
+    # Communicate by putting a tuple of (onTime, offTime) in the qBlinkControl queue.
+    # The queue.Queue is inherently thread-safe, so no additional locking is needed.
     #
     def blink_led(q):
         # print("Starting LED thread") # why do I need to have this for the thread to work?
@@ -418,7 +450,7 @@ def showStatus(labelForStatusDisplay = None):
     '''show the status of the program'''
 
     # get ip address and print it
-    if not g_isMacOS:
+    if not config.isMacOS:
         ipMsg = "IP Address: " + os.popen('hostname -I').read()
         print(ipMsg)
     else:
@@ -483,13 +515,13 @@ voice_command_functions = {
 
 
 def changeBlinkRate(blinkRate):
-    '''change the LED blink rate. This routine isolates the RPi specific code'''
-    if not g_isMacOS:
-        # running on RPi
+    '''change the LED blink rate. This routine isolates the RPi specific code.
+
+    Thread safety: queue.Queue.put() is thread-safe.  On non-RPi platforms
+    qBlinkControl is None and this function is a no-op.
+    '''
+    if qBlinkControl is not None:
         qBlinkControl.put(blinkRate)
-    else:
-        # not running on RPI so do nothing
-        pass
 
 
 def recordAudioFromMicrophone(duration):
@@ -504,7 +536,7 @@ def recordAudioFromMicrophone(duration):
         logger.warning(f"Failed to remove old recording: {str(e)}")
     
     try:
-        if g_isMacOS:
+        if config.isMacOS:
             # print the devices
             # print(sd.query_devices())  # in case you have trouble with the devices
 
@@ -528,7 +560,7 @@ def recordAudioFromMicrophone(duration):
         # Save the recording to a WAV file
         soundfile.write(soundFileName, recording, sample_rate)
 
-    elif g_isRPi:
+    elif config.isRPi:
         # RPi
         try:
             # all this crap because the ALSA library can't police itself
@@ -919,7 +951,7 @@ def create_main_window(usingHardwareButton):
                      bg='#52837D',
                      fg='#FFFFFF',
                      )
-    labelCommandHint = tk.Label(gw.windowMain, text="show commands  v: " + S2P_VERSION, font=("Helvetica", 12),
+    labelCommandHint = tk.Label(gw.windowMain, text="show commands  v: " + config.version, font=("Helvetica", 12),
                      justify=tk.LEFT, wraplength=300, bg='#52837D', fg='#FFFFFF')
 
     # add a label to display the images
@@ -1427,10 +1459,10 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
 
         # record audio from the default microphone
         display_text_in_message_window("Speak Now\r\nYou have 10 seconds", labelForMessageDisplay)
-        if g_isMacOS: os.system('say "Recording."')
+        if config.isMacOS: os.system('say "Recording."')
         soundFileName = recordAudioFromMicrophone(settings.duration)
         display_text_in_message_window("Recording Complete, now analyzing", labelForMessageDisplay)
-        if g_isMacOS: os.system('say "Recording complete."')
+        if config.isMacOS: os.system('say "Recording complete."')
 
         if settings.isSaveFiles:
             print("Saving audio file: " + soundFileName)
@@ -1688,7 +1720,7 @@ def main():
                 print("Commands:")
                 print("   o: Once, record and display; default")
                 print("   a: Auto mode, record, display, and loop")
-                if not g_isMacOS:
+                if not config.isMacOS:
                     # running on RPi
                     print("   h: Hardware control")
                 print("   q: Quit")
@@ -1805,7 +1837,7 @@ def main():
         # end of loop
 
     # all done
-    if not g_isMacOS:
+    if led_thread1 is not None:
         # running on RPi
         # Stop the LED thread
         changeBlinkRate(BLINK_DIE)
