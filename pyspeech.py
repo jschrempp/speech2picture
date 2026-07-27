@@ -132,7 +132,6 @@ Author: Jim Schrempp 2023
 
 Version History of significant changes:
 
-v 1.0 consolidated GUI into one window using tkinter grid and a pop up to show the transcript
 v 0.8 added "without any text or writing in the image" to the image prompt
 v 0.7 more code cleanup, improved image resizing for display size
       added QR code
@@ -141,6 +140,7 @@ v 0.5 Initial version
 v 0.6 2023-11-12 inverted Go Button logic so it is active low (pulled to ground)
 v 0.7 updated to python 3.12 and openAI 1.0.0 (wow that was a pain)
       BE SURE to read updated install instructions above
+v 1.0 consolidated GUI into one window using tkinter grid and a pop up to show the transcript
 v 1.2 Added capability to store images created in the AWS S3 cloud and display a QR code to them for instant download
 v 2.0 Added capability to generate 4 images at once, each with a different style modifier.
       Changed from gpt-image-1 to gpt-image-1.5
@@ -949,9 +949,21 @@ def postProcessImages(imageURLs, imageModifiers, keywords, timestr, filePrefix):
         fill="black")
     font = ImageFont.truetype("arial.ttf", 56)
 
-    # Wrap text across up to 2 lines
+    # Wrap text across up to 2 lines, using 75% of image width
     import textwrap as _tw
-    lines = _tw.wrap(imageCaption, width=30)
+    max_text_width = int(new_im.width * 0.75)
+    lines = _tw.wrap(imageCaption, width=60)
+    # If the wrapped lines still exceed pixel width, reduce until they fit
+    for char_width in range(60, 20, -5):
+        lines = _tw.wrap(imageCaption, width=char_width)
+        all_fit = True
+        for line in lines:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            if bbox[2] - bbox[0] > max_text_width:
+                all_fit = False
+                break
+        if all_fit:
+            break
     lines = lines[:2]  # max 2 lines
     for idx, line in enumerate(lines):
         y_pos = new_im.height - caption_area_height + 5 + idx * 60
