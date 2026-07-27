@@ -142,6 +142,9 @@ v 0.6 2023-11-12 inverted Go Button logic so it is active low (pulled to ground)
 v 0.7 updated to python 3.12 and openAI 1.0.0 (wow that was a pain)
       BE SURE to read updated install instructions above
 v 1.2 Added capability to store images created in the AWS S3 cloud and display a QR code to them for instant download
+v 2.0 Added capability to generate 4 images at once, each with a different style modifier.
+      Changed from gpt-image-1 to gpt-image-1.5
+      Changed from using artist names to just stylistic descriptions to appease the openAI safety filters.
 """
 
 # import common libraries
@@ -163,6 +166,7 @@ import json
 import string
 import base64
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from queue import Queue
 from enum import IntEnum
@@ -182,7 +186,7 @@ class Config:
     def __init__(self):
         self.isMacOS = False
         self.isRPi = False
-        self.version = "1.2"
+        self.version = "2.0"
         self.useS3 = False
         self.kiosk_mode = False
         self.single_image = False
@@ -833,34 +837,59 @@ def getImageURL(phrase):
             modifiers_to_use = IMAGE_MODIFIERS[:num_images] if not phrase_has_style else [""] * num_images
             modifierUsed = ", ".join(m for m in modifiers_to_use if m)  # combined for caption
 
-            image_urls = []
+            # Show initial progress message
+            last_transcript = getattr(gw, 'lastTranscript', '')
+            progress_msg = (
+                f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
+                f'Creating images... (0 of {num_images})'
+            ) if last_transcript else f"Creating images... (0 of {num_images})"
+            display_text_in_message_window(
+                progress_msg,
+                labelToUse=getattr(gw, 'labelForMessage', None))
+
+            # Build prompts for all images
+            prompts_and_indices = []
             for i in range(num_images):
-                
                 mod = modifiers_to_use[i]
                 if phrase_has_style or not mod:
                     prompt = f"Generate a picture WITHOUT ANY TEXT OR WRITING IN THE PICTURE and some randomness for the following: '{phrase}'"
                 else:
                     prompt = f"Generate a picture {mod} and interpret it creatively for the following: '{phrase}'"
+                prompts_and_indices.append((i, prompt))
 
-                # Update progress in the message window
-                last_transcript = getattr(gw, 'lastTranscript', '')
-                progress_msg = (
-                    f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
-                    f'Creating images... {i+1} of {num_images}'
-                ) if last_transcript else f"Creating images... {i+1} of {num_images}"
-                display_text_in_message_window(
-                    progress_msg,
-                    labelToUse=getattr(gw, 'labelForMessage', None))
+            # Fire all 4 API calls concurrently
+            image_urls = [None] * num_images
+            completed_count = 0
+            with ThreadPoolExecutor(max_workers=num_images) as executor:
+                future_to_index = {}
+                for idx, prompt in prompts_and_indices:
+                    logger.info(f"Submitting image {idx + 1}/{num_images} request with prompt: {prompt}")
+                    future = executor.submit(
+                        lambda p=prompt: client.images.generate(
+                            prompt=p,
+                            model="gpt-image-1.5",
+                            n=1,
+                            size="1024x1024"
+                        )
+                    )
+                    future_to_index[future] = idx
 
-                logger.info(f"Generating image {i+1}/{num_images} with prompt: {prompt}")
-                responseImage = client.images.generate(
-                    prompt=prompt,
-                    model="gpt-image-1.5",
-                    n=1,
-                    size="1024x1024"
-                )
-                # gpt-image-1.5 returns b64_json, not URLs
-                image_urls.append(responseImage.data[0].b64_json)
+                for future in as_completed(future_to_index):
+                    idx = future_to_index[future]
+                    responseImage = future.result()
+                    # gpt-image-1.5 returns b64_json, not URLs
+                    image_urls[idx] = responseImage.data[0].b64_json
+                    completed_count += 1
+                    logger.info(f"Image {idx + 1}/{num_images} completed ({completed_count}/{num_images} done)")
+
+                    # Update progress in the message window
+                    progress_msg = (
+                        f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
+                        f'Creating images... {completed_count} of {num_images}'
+                    ) if last_transcript else f"Creating images... {completed_count} of {num_images}"
+                    display_text_in_message_window(
+                        progress_msg,
+                        labelToUse=getattr(gw, 'labelForMessage', None))
 
         loggerTrace.debug("responseImage count: " + str(len(image_urls)))
 
