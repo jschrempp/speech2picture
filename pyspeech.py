@@ -246,22 +246,23 @@ PROMPT_FOR_ABSTRACTION = "In 15 words or less, what are the most interesting con
 # 'generate a picture [MODIFIER] for the following concept: ...'
 
 IMAGE_MODIFIERS = [
-    "as a painting by Picasso",
-    "as a watercolor by Picasso",
-    "as a sketch by Picasso",
-    "as a vivid color painting by Monet",
-    "as a painting by Van Gogh",
-    "as a painting by Dali",
-    "in the style of Escher",
-    "in the style of Rembrandt",
-    "as a photograph by Ansel Adams",
-    "as a painting by Edward Hopper",
-    "as a painting by Norman Rockwell",
+    "as a painting in the style of cubism",
+    "as a watercolor in the style of surrealism",
+    "as a sketch in the style of surrealism",
+    "as a vivid color painting in the style of impressionism",
+    "as a painting in the style of the French Breakthrough",
+    "as a painting in the style of Nuclear Mysticism",
+    "in the style of mathematical graphic art",
+    "in the style of the Dutch Golden Age",
+    "as a photograph in the style of purist landscape photography",
+    "as a painting in the style of American Realism",
+    "as a painting in the style of exaggerated realism",
     "in the style of steam punk",
     "in the style of abstract expressionism",
     "in the style of pop art",
     "in the style of impressionism",
-    "in the style of Gustav Klimt",
+    "in the style of Art Nouveau",
+    "as a watercolor",
 ]
 
 # see if the user has their own artists list
@@ -799,25 +800,25 @@ def getImageURL(phrase):
     try:
         # pick random modifiers
         random.shuffle(IMAGE_MODIFIERS)
-      
-        # create the prompt for the image generator
-        modifierUsed = IMAGE_MODIFIERS[0]
-        # if phrase contains stylistic information
-        if ("in the style of" in phrase.lower() 
-                or "as a painting by" in phrase.lower() 
-                or "as a photograph by" in phrase.lower() 
-                or "as a sketch by" in phrase.lower() 
-                or "as a watercolor by" in phrase.lower()):
-            modifierUsed = ""
-            prompt = f"Generate a picture WITHOUT ANY TEXT OR WRITING IN THE PICTURE for the following: '{phrase}'"
-        else:
-            # add a random modifier to the prompt
-            prompt = f"Generate a picture {modifierUsed} WITHOUT ANY TEXT OR WRITING IN THE PICTURE for the following: '{phrase}'"
 
-        logger.info(f"Generating image with prompt: {prompt}")
+        # Check if phrase already contains stylistic information
+        phrase_has_style = (
+            "in the style of" in phrase.lower()
+            or "as a painting by" in phrase.lower()
+            or "as a photograph by" in phrase.lower()
+            or "as a sketch by" in phrase.lower()
+            or "as a watercolor by" in phrase.lower()
+        )
 
         # use openai to generate a picture based on the summary
         if gw.single_image:
+            modifierUsed = IMAGE_MODIFIERS[0] if not phrase_has_style else ""
+            if phrase_has_style:
+                prompt = f"Generate a picture WITHOUT ANY TEXT OR WRITING IN THE PICTURE for the following: '{phrase}'"
+            else:
+                prompt = f"Generate a picture {modifierUsed} WITHOUT ANY TEXT OR WRITING IN THE PICTURE for the following: '{phrase}'"
+
+            logger.info(f"Generating image with prompt: {prompt}")
             responseImage = client.images.generate(
                 prompt=prompt,
                 model="dall-e-3",
@@ -825,17 +826,43 @@ def getImageURL(phrase):
                 size="1024x1024"
             )
             image_urls = [img.url for img in responseImage.data]
+
         else:
-            responseImage = client.images.generate(
-                prompt=prompt,
-                model="gpt-image-1.5",
-                n=4,
-                size="1024x1024"
-            )
-            # gpt-image-1.5 returns b64_json, not URLs
-            image_urls = [img.b64_json for img in responseImage.data]
-        
-        loggerTrace.debug("responseImage: " + str(responseImage))
+            # Generate 4 images, each with a different modifier for variety
+            num_images = 4
+            modifiers_to_use = IMAGE_MODIFIERS[:num_images] if not phrase_has_style else [""] * num_images
+            modifierUsed = ", ".join(m for m in modifiers_to_use if m)  # combined for caption
+
+            image_urls = []
+            for i in range(num_images):
+                
+                mod = modifiers_to_use[i]
+                if phrase_has_style or not mod:
+                    prompt = f"Generate a picture WITHOUT ANY TEXT OR WRITING IN THE PICTURE and some randomness for the following: '{phrase}'"
+                else:
+                    prompt = f"Generate a picture {mod} and interpret it creatively for the following: '{phrase}'"
+
+                # Update progress in the message window
+                last_transcript = getattr(gw, 'lastTranscript', '')
+                progress_msg = (
+                    f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
+                    f'Creating images... {i+1} of {num_images}'
+                ) if last_transcript else f"Creating images... {i+1} of {num_images}"
+                display_text_in_message_window(
+                    progress_msg,
+                    labelToUse=getattr(gw, 'labelForMessage', None))
+
+                logger.info(f"Generating image {i+1}/{num_images} with prompt: {prompt}")
+                responseImage = client.images.generate(
+                    prompt=prompt,
+                    model="gpt-image-1.5",
+                    n=1,
+                    size="1024x1024"
+                )
+                # gpt-image-1.5 returns b64_json, not URLs
+                image_urls.append(responseImage.data[0].b64_json)
+
+        loggerTrace.debug("responseImage count: " + str(len(image_urls)))
 
         return image_urls, modifierUsed
 
@@ -866,11 +893,12 @@ def postProcessImages(imageURLs, imageModifiers, keywords, timestr, filePrefix):
         imgObjects.append(img)
 
     # combine the images into one image
+    caption_area_height = 140  # taller area for two lines of large text
     if not gw.single_image:
         # Determine image size from the first image (supports 512x512 and 1024x1024)
         img_w, img_h = imgObjects[0].size
         total_width = img_w * 2
-        max_height = img_h * 2 + 50
+        max_height = img_h * 2 + caption_area_height
         new_im = Image.new('RGB', (total_width, max_height))
         locations = [(0, 0), (img_w, 0), (0, img_h), (img_w, img_h)]
         count = -1
@@ -879,19 +907,29 @@ def postProcessImages(imageURLs, imageModifiers, keywords, timestr, filePrefix):
             new_im.paste(imgObjects[count], loc)
     else:
         total_width = 1024
-        max_height = 1024 + 50
+        max_height = 1024 + caption_area_height
         new_im = Image.new('RGB', (total_width, max_height))
-        new_im.paste(imgObjects[0], (0,0))
+        new_im.paste(imgObjects[0], (0, 0))
 
 
     # add text at the bottom
-    imageCaption = f'{keywords} {imageModifiers}'
+    imageCaption = f'{keywords}' # {imageModifiers}'
     draw = ImageDraw.Draw(new_im)
-    draw.rectangle(((0, new_im.height - 50), (new_im.width, new_im.height)), fill="black")
-    font = ImageFont.truetype("arial.ttf", 18)
-    # decide if text will exceed the width of the image
-    #textWidth, textHeight = font.getsize(text)
-    draw.text((10, new_im.height - 30), imageCaption, (255,255,255), font=font)
+    draw.rectangle(
+        ((0, new_im.height - caption_area_height), (new_im.width, new_im.height)),
+        fill="black")
+    font = ImageFont.truetype("arial.ttf", 56)
+
+    # Wrap text across up to 2 lines
+    import textwrap as _tw
+    lines = _tw.wrap(imageCaption, width=30)
+    lines = lines[:2]  # max 2 lines
+    for idx, line in enumerate(lines):
+        y_pos = new_im.height - caption_area_height + 5 + idx * 60
+        bbox = draw.textbbox((0, 0), line, font=font)
+        text_width = bbox[2] - bbox[0]
+        x_pos = (new_im.width - text_width) / 2
+        draw.text((x_pos, y_pos), line, (255, 255, 255), font=font)
 
     # save the combined image
     newFileName = "history/" + filePrefix + timestr + "-image" + ".png"
@@ -922,11 +960,10 @@ def generateErrorImage(e, timestr):
     lines = textwrap.wrap(imageCaption, width=60)  #width is characters
     y_text = new_im.height/2
     for line in lines:
-        #width, height = font.getsize(line)
-        #draw.text(((new_im.width - width) / 2, y_text), line, font=font) 
-        #y_text += height
-        height = 25
-        draw.text((100, y_text), line, font=font) 
+        bbox = draw.textbbox((0, 0), line, font=font)
+        text_width = bbox[2] - bbox[0]
+        height = bbox[3] - bbox[1]
+        draw.text(((new_im.width - text_width) / 2, y_text), line, font=font)
         y_text += height
 
     #draw.text((10, new_im.height/2), imageCaption, (255,255,255), font=font)
@@ -1252,7 +1289,6 @@ def create_status_window():
                      wraplength=statusWindowWidth-80,
                      bg='#FFFFFF',
                      fg='#000000',
-                     text="initial test message",
                      )
 
     # have the label fill the cell  
@@ -1277,18 +1313,25 @@ def display_text_in_status_window(message=None, labelToUse=None):
         return
 
     try:
-        if (labelToUse is None):
-            gw.windowForStatus.withdraw() # Hide the message window
+        # Recreate the status window if the user closed it
+        if gw.windowForStatus is None or not gw.windowForStatus.winfo_exists():
+            create_status_window()
+
+        # If there's a message, show the window; if not, hide it
+        if message is None or labelToUse is None:
+            # No message to display — just hide
+            gw.windowForStatus.withdraw()
         else:
-            labelToUse.configure(text=message,)
-            gw.windowForStatus.deiconify() # Show the window now that it has a message
+            labelToUse.configure(text=message)
+            gw.windowForStatus.deiconify()
 
         gw.windowForStatus.update_idletasks()
         gw.windowForStatus.update()
 
         display_text_in_message_window()
-        gw.windowForMessages.update_idletasks()
-        gw.windowForMessages.update()
+        if gw.windowForMessages is not None and gw.windowForMessages.winfo_exists():
+            gw.windowForMessages.update_idletasks()
+            gw.windowForMessages.update()
     except tk.TclError:
         # Widget was destroyed (e.g., during quit), ignore
         pass
@@ -1306,11 +1349,17 @@ def display_text_in_message_window(message=None, labelToUse=None):
         return
 
     try:
-        if (labelToUse is None):
-            gw.windowForMessages.withdraw() # Hide the message window
+        # Recreate the message window if the user closed it
+        if gw.windowForMessages is None or not gw.windowForMessages.winfo_exists():
+            create_message_window()
+
+        # If there's a message, show the window; if not, hide it
+        if message is None or labelToUse is None:
+            # No message to display — just hide
+            gw.windowForMessages.withdraw()
         else:
-            labelToUse.configure(text=message,)
-            gw.windowForMessages.deiconify() # Show the window now that it has a message
+            labelToUse.configure(text=message)
+            gw.windowForMessages.deiconify()
 
         gw.windowForMessages.update_idletasks()
         gw.windowForMessages.update()
@@ -1611,6 +1660,7 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
 
         msg = f'I heard you say:\n\r "{transcript}" \n\r\n\rNow we wait for the images.'
         display_text_in_message_window(msg, labelForMessageDisplay)
+        gw.lastTranscript = transcript  # store for progress updates during image generation
         nextProcessStep = processStep.Summarize
 
         changeBlinkRate(BLINK_STOP)
@@ -1707,7 +1757,9 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
 
             if 'content_policy_violation' in str(e):
                 # this is a common error, so we'll display a message to the user
-                msg = f'Content Policy Violation.  Your prompt may contain text that is not allowed by our safety system.'
+                msg = f'The AI Safety System rejected this prompt. Please try again.'
+            elif 'safety' in str(e).lower():
+                msg = f'The AI Safety System rejected this prompt. Please try again.'
             elif 'something went wrong' in str(e):
                 msg = f'Something went wrong with the OpenAI image generation.  Please try again'
             elif 'server had an error' in str(e):
@@ -1716,8 +1768,12 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
                 msg = f'We had an error:\n\r "{str(e)}" \n\r\n\rPlease try again.'
 
             display_text_in_message_window(msg, labelForMessageDisplay)
-            time.sleep(5) # delay for 5 seconds
-            display_text_in_message_window() # Hide the message window
+            # Wait 10 seconds while keeping the GUI responsive so the
+            # window renders properly and withdraw() works correctly.
+            for _ in range(100):
+                root.update()
+                time.sleep(0.1)
+            display_text_in_message_window()  # Hide the message window
             update_main_window()
 
             changeBlinkRate(BLINK_STOP)
@@ -1806,6 +1862,7 @@ def main():
 
     # create the message window
     labelForMessageDisplay = create_message_window()
+    gw.labelForMessage = labelForMessageDisplay  # store so getImageURL can use it
     display_text_in_message_window() # hide the message window
 
     # create the status window
@@ -1949,6 +2006,11 @@ def main():
                     # delay before the next for loop iteration, we don't do this when using hardware buttons
                     print("delaying " + str(settings.autoLoopDelay) + " seconds...")
                     time.sleep(settings.autoLoopDelay)            
+
+            # Reset the history-display timer so the generated image stays
+            # on screen for 90 seconds before history images resume.
+            lastCommandTime = time.time()
+            randomDisplayMode = False            
 
         # let the tkinter window events happen
         update_main_window()
