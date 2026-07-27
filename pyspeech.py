@@ -161,7 +161,9 @@ import random
 import tkinter as tk
 import json
 import string
+import base64
 import threading
+from io import BytesIO
 from queue import Queue
 from enum import IntEnum
 from PIL import Image, ImageDraw, ImageFont, ImageTk
@@ -792,7 +794,8 @@ def getAbstractForImageGen(inputText):
 
 
 def getImageURL(phrase):
-    '''get images and return the urls'''
+    '''get images and return the image data (URLs or base64) and modifier used'''
+
     try:
         # pick random modifiers
         random.shuffle(IMAGE_MODIFIERS)
@@ -814,67 +817,62 @@ def getImageURL(phrase):
         logger.info(f"Generating image with prompt: {prompt}")
 
         # use openai to generate a picture based on the summary
-        responseImage = client.images.generate(
-            prompt=prompt,
-            n=4 if not gw.single_image else 1,
-            size="512x512" if not gw.single_image else "1024x1024",
-            model=None if not gw.single_image else "dall-e-3"
-        )
+        if gw.single_image:
+            responseImage = client.images.generate(
+                prompt=prompt,
+                model="dall-e-3",
+                n=1,
+                size="1024x1024"
+            )
+            image_urls = [img.url for img in responseImage.data]
+        else:
+            responseImage = client.images.generate(
+                prompt=prompt,
+                model="gpt-image-1.5",
+                n=4,
+                size="1024x1024"
+            )
+            # gpt-image-1.5 returns b64_json, not URLs
+            image_urls = [img.b64_json for img in responseImage.data]
         
         loggerTrace.debug("responseImage: " + str(responseImage))
 
-        image_urls = [img.url for img in responseImage.data]
         return image_urls, modifierUsed
 
     except Exception as e:
         logger.error(f"Image generation failed: {str(e)}")
         display_text_in_message_window(f"Image generation failed: {str(e)}")
         raise RuntimeError(f"Image generation failed: {str(e)}")
-        image_url[2] = responseImage.data[2].url
-        image_url[3] = responseImage.data[3].url
-    
-    else: 
-        try:
-            responseImage = client.images.generate(
-                prompt= prompt,
-                model = "dall-e-3",
-                n=1,
-                size="1024x1024"
-                )
-        except Exception as e:
-            print("\n\n\n")
-            print(e)
-            print("\n\n\n")
-            raise (e)
-            
-        loggerTrace.debug("responseImage: " + str(responseImage))
-
-        image_url = [responseImage.data[0].url]
-
-    return image_url, modifierUsed
 
 
 def postProcessImages(imageURLs, imageModifiers, keywords, timestr, filePrefix):
     '''reformat the images for display and return the new file name'''
 
-    # save the images from a urls into imgObjects[]
+    # save the images into imgObjects[]
     imgObjects = []
     for numURL in range(len(imageURLs)):
 
         fileName = "history/" + "image" + str(numURL) + ".png"
-        urllib.request.urlretrieve(imageURLs[numURL], fileName)
+
+        if imageURLs[numURL].startswith("http"):
+            # URL-based image (dall-e models)
+            urllib.request.urlretrieve(imageURLs[numURL], fileName)
+        else:
+            # base64-encoded image (gpt-image models)
+            with open(fileName, "wb") as f:
+                f.write(base64.b64decode(imageURLs[numURL]))
 
         img = Image.open(fileName)
-
         imgObjects.append(img)
 
     # combine the images into one image
-    #widths, heights = zip(*(i.size for i in imgObjects))
     if not gw.single_image:
-        total_width = 512*2
-        max_height = 512*2 + 50
+        # Determine image size from the first image (supports 512x512 and 1024x1024)
+        img_w, img_h = imgObjects[0].size
+        total_width = img_w * 2
+        max_height = img_h * 2 + 50
         new_im = Image.new('RGB', (total_width, max_height))
-        locations = [(0,0), (512,0), (0,512), (512,512)]
+        locations = [(0, 0), (img_w, 0), (0, img_h), (img_w, img_h)]
         count = -1
         for loc in locations:
             count += 1
@@ -1113,8 +1111,13 @@ def create_main_window(usingHardwareButton):
 def update_main_window():
     global gw
 
-    gw.windowMain.update_idletasks()
-    gw.windowMain.update()
+    if gw.isQuitting:
+        return
+    try:
+        gw.windowMain.update_idletasks()
+        gw.windowMain.update()
+    except tk.TclError:
+        pass
 
 def exitFullscreenButtonPressed():
     '''exit fullscreen mode and resize window'''
@@ -1255,20 +1258,27 @@ def display_text_in_status_window(message=None, labelToUse=None):
     if labelToUse is None, then hide the window
     '''
     global gw
-      
-    if (labelToUse is None):
-        gw.windowForStatus.withdraw() # Hide the message window
-        
-    else:
-        labelToUse.configure(text=message,)
-        gw.windowForStatus.deiconify() # Show the window now that it has a message
 
-    gw.windowForStatus.update_idletasks()
-    gw.windowForStatus.update()
+    # Guard against destroyed widgets during shutdown
+    if gw.isQuitting:
+        return
 
-    display_text_in_message_window()
-    gw.windowForMessages.update_idletasks()
-    gw.windowForMessages.update()
+    try:
+        if (labelToUse is None):
+            gw.windowForStatus.withdraw() # Hide the message window
+        else:
+            labelToUse.configure(text=message,)
+            gw.windowForStatus.deiconify() # Show the window now that it has a message
+
+        gw.windowForStatus.update_idletasks()
+        gw.windowForStatus.update()
+
+        display_text_in_message_window()
+        gw.windowForMessages.update_idletasks()
+        gw.windowForMessages.update()
+    except tk.TclError:
+        # Widget was destroyed (e.g., during quit), ignore
+        pass
 
 
 def display_text_in_message_window(message=None, labelToUse=None):
@@ -1277,16 +1287,23 @@ def display_text_in_message_window(message=None, labelToUse=None):
     if labelToUse is None, then hide the window
     '''
     global gw
-      
-    if (labelToUse is None):
-        gw.windowForMessages.withdraw() # Hide the message window
-        
-    else:
-        labelToUse.configure(text=message,)
-        gw.windowForMessages.deiconify() # Show the window now that it has a message
 
-    gw.windowForMessages.update_idletasks()
-    gw.windowForMessages.update()
+    # Guard against destroyed widgets during shutdown
+    if gw.isQuitting:
+        return
+
+    try:
+        if (labelToUse is None):
+            gw.windowForMessages.withdraw() # Hide the message window
+        else:
+            labelToUse.configure(text=message,)
+            gw.windowForMessages.deiconify() # Show the window now that it has a message
+
+        gw.windowForMessages.update_idletasks()
+        gw.windowForMessages.update()
+    except tk.TclError:
+        # Widget was destroyed (e.g., during quit), ignore
+        pass
 
 
 def display_image(image_path, label=None, labelQR = None, labelQRText = None):
@@ -1295,6 +1312,10 @@ def display_image(image_path, label=None, labelQR = None, labelQRText = None):
     '''
 
     global gw
+
+    # Guard against destroyed widgets during shutdown
+    if gw.isQuitting:
+        return
 
     logger.debug("display_image: " + image_path)
     logToFile.debug("display_image: " + image_path)
@@ -1743,21 +1764,21 @@ def main():
     # read configuration file
     if os.path.exists('s2pconfig.json'):
         with open('s2pconfig.json') as f:
-            config = json.load(f)
+            app_config = json.load(f)
     else:
         # create a default config file
         # three random characters to make the file name unique
         randomString = ''.join(random.choices(string.ascii_uppercase, k=3))
-        config = {
+        app_config = {
             "Installation Id": randomString
         }
         writeToFile = open('s2pconfig.json', 'w')
-        json.dump(config, writeToFile)
+        json.dump(app_config, writeToFile)
         writeToFile.close()
 
     # this prefix is prepended to all files saved to allow us to know the source system
     # when combining files from multiple systems
-    filePrefix = config['Installation Id'] + "-"
+    filePrefix = app_config['Installation Id'] + "-"
 
     # args
     settings = parseCommandLineArgs() # get the command line arguments
