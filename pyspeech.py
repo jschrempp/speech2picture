@@ -1141,9 +1141,22 @@ def quitButtonPressed():
     global gw
 
     gw.isQuitting = True
-    gw.windowMain.destroy()
-    gw.windowForMessages.destroy()
-    exit(0)
+    try:
+        if gw.windowMain is not None:
+            gw.windowMain.destroy()
+    except tk.TclError:
+        pass
+    try:
+        if gw.windowForMessages is not None:
+            gw.windowForMessages.destroy()
+    except tk.TclError:
+        pass
+    try:
+        if gw.windowForStatus is not None:
+            gw.windowForStatus.destroy()
+    except tk.TclError:
+        pass
+    os._exit(0)
 
 def create_message_window():
     '''
