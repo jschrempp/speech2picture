@@ -158,6 +158,7 @@ import datetime
 import shutil
 import re
 import os
+import socket
 import select
 import sys
 import random
@@ -540,30 +541,61 @@ def showStatus(labelForStatusDisplay = None):
     '''show the status of the program'''
 
     # get ip address and print it
-    if not config.isMacOS:
-        ipMsg = "IP Address: " + os.popen('hostname -I').read()
-        print(ipMsg)
+    ip_addr = ""
+    try:
+        # Works cross-platform by asking OS which interface would route outbound traffic.
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip_addr = sock.getsockname()[0]
+    except OSError:
+        pass
+
+    if not ip_addr:
+        try:
+            # Fallback for Linux/RPi where hostname -I is available.
+            ip_addr = os.popen("hostname -I").read().strip().split(" ")[0]
+        except Exception:
+            ip_addr = ""
+
+    if ip_addr:
+        ipMsg = "IP Address: " + ip_addr
     else:
-        print ("IP address is not available on macOS.")
-        ipMsg = ""
+        ipMsg = "IP Address: unavailable"
+
+    print(ipMsg)
 
     directory = "history"
+    pngFiles = []
+    historyFileCount = 0
     for dirpath, dirnames, historyFiles in os.walk(directory):
         print(f"Number of files in {dirpath}: {len(historyFiles)}")
+        historyFileCount += len(historyFiles)
+        for file in historyFiles:
+            if file.lower().endswith(".png"):
+                file_path = os.path.join(dirpath, file)
+                if os.path.isfile(file_path):
+                    pngFiles.append(file_path)
 
-    pngFiles = [os.path.join('history',file) for file in historyFiles if file.endswith(".png")]
     numPngFiles = len(pngFiles)
     print("Number of PNG files in history: " + str(numPngFiles))
-    historyCount = "Number of files in history: " + str(len(historyFiles))
+    historyCount = "Number of files in history: " + str(historyFileCount)
     print(historyCount)
 
     # get the creation date of the oldest png file in the history directory
-    oldestFile = min(pngFiles, key=os.path.getctime)
-    oldestFileTimestamp = os.path.getctime(oldestFile)
-    oldestFileDate = datetime.datetime.fromtimestamp(oldestFileTimestamp)
-    oldestFileDateFormatted = oldestFileDate.strftime("%m-%d-%Y")
-    # get the creation date of oldestFile   
-    oldestFileDate = "Oldest file in history: " + oldestFileDateFormatted
+    if pngFiles:
+        # Files can disappear between scan and stat; skip any that no longer exist.
+        existingPngFiles = [file for file in pngFiles if os.path.exists(file)]
+        if existingPngFiles:
+            oldestFile = min(existingPngFiles, key=os.path.getctime)
+            oldestFileTimestamp = os.path.getctime(oldestFile)
+            oldestFileDateObj = datetime.datetime.fromtimestamp(oldestFileTimestamp)
+            oldestFileDateFormatted = oldestFileDateObj.strftime("%m-%d-%Y")
+            oldestFileDate = "Oldest file in history: " + oldestFileDateFormatted
+        else:
+            oldestFileDate = "Oldest file in history: unavailable"
+    else:
+        oldestFileDate = "Oldest file in history: none"
+
     print (oldestFileDate)
 
     # get the number of files in randomImages directory
@@ -1076,10 +1108,10 @@ class _MainWindow(QtWidgets.QMainWindow):
         self._labelInstructions.setWordWrap(True)
         self._labelInstructions.setMaximumWidth(560)
         self._labelInstructions.setMinimumHeight(320)
-        self._labelInstructions.setStyleSheet(
-            "font-size: 36px; font-weight: 700; font-family: 'Noto Sans', 'DejaVu Sans', 'Verdana', 'Arial';"
-            " color: #FFFFFF; background-color: #52837D;"
-        )
+        self._instruction_font_max_px = 36
+        self._instruction_font_min_px = 18
+        self._instruction_font_family = self._pick_instruction_font_family()
+        self._set_instructions_font_size(self._instruction_font_max_px)
         self._main_grid.addWidget(self._labelInstructions, 0, 1, 2, 4)
 
         # --- Main image label ---
@@ -1154,7 +1186,14 @@ class _MainWindow(QtWidgets.QMainWindow):
             "font: 24px Helvetica; background-color: #D3D3D3; color: #000000;"
         )
         self._buttonQuit.clicked.connect(quitButtonPressed)
-        button_layout.addWidget(self._buttonQuit)
+
+        # Place Quit in the lower-left area of the main window.
+        self._main_grid.addWidget(
+            self._buttonQuit,
+            4,
+            0,
+            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignBottom,
+        )
 
         self._main_grid.addLayout(button_layout, 3, 2, 1, 2)
 
@@ -1168,7 +1207,7 @@ class _MainWindow(QtWidgets.QMainWindow):
         self._labelCommandHint.setStyleSheet(
             "font: 12px Helvetica; color: #FFFFFF; background-color: #52837D;"
         )
-        self._main_grid.addWidget(self._labelCommandHint, 4, 0, 1, 2)
+        self._main_grid.addWidget(self._labelCommandHint, 3, 0, 1, 1)
 
         # --- QR for generated image (only if S3 enabled) ---
         if gw.useS3:
@@ -1208,7 +1247,9 @@ class _MainWindow(QtWidgets.QMainWindow):
             self.setGeometry(x, y, w, h)
 
         self._apply_image_pane_width()
+        self._fit_instructions_font()
         QtCore.QTimer.singleShot(0, self._apply_image_pane_width)
+        QtCore.QTimer.singleShot(0, self._fit_instructions_font)
 
         gw.windowMain = self
 
@@ -1227,6 +1268,53 @@ class _MainWindow(QtWidgets.QMainWindow):
         image_stretch = max(1, int(round((other_total_stretch * ratio) / (1.0 - ratio))))
         self._main_grid.setColumnStretch(6, image_stretch)
 
+    def _pick_instruction_font_family(self) -> str:
+        """Pick the first available readable font for kiosk instructions."""
+        preferred_fonts = ["Noto Sans", "DejaVu Sans", "Verdana", "Arial", "Helvetica"]
+        available_fonts = set(QtGui.QFontDatabase.families())
+        for font_name in preferred_fonts:
+            if font_name in available_fonts:
+                return font_name
+        return self._labelInstructions.font().family()
+
+    def _set_instructions_font_size(self, size_px: int):
+        """Apply instruction font family and pixel size."""
+        self._labelInstructions.setStyleSheet(
+            f"font-size: {size_px}px; font-weight: 700; font-family: '{self._instruction_font_family}';"
+            " color: #FFFFFF; background-color: #52837D;"
+        )
+
+    def _fit_instructions_font(self):
+        """Reduce instruction font size until full text fits the label bounds."""
+        text = self._labelInstructions.text()
+        if not text:
+            return
+
+        rect = self._labelInstructions.contentsRect()
+        if rect.width() <= 0 or rect.height() <= 0:
+            return
+
+        fit_flags = int(QtCore.Qt.TextFlag.TextWordWrap | QtCore.Qt.TextFlag.TextExpandTabs)
+        best_size = self._instruction_font_min_px
+
+        for size_px in range(self._instruction_font_max_px, self._instruction_font_min_px - 1, -1):
+            font = QtGui.QFont(self._instruction_font_family)
+            font.setPixelSize(size_px)
+            font.setWeight(QtGui.QFont.Weight.Bold)
+
+            metrics = QtGui.QFontMetrics(font)
+            text_rect = metrics.boundingRect(
+                QtCore.QRect(0, 0, rect.width(), 20000),
+                fit_flags,
+                text,
+            )
+
+            if text_rect.height() <= rect.height():
+                best_size = size_px
+                break
+
+        self._set_instructions_font_size(best_size)
+
     def keyPressEvent(self, event: QtGui.QKeyEvent):
         """ESC exits fullscreen / quits."""
         if event.key() == QtCore.Qt.Key.Key_Escape:
@@ -1242,6 +1330,7 @@ class _MainWindow(QtWidgets.QMainWindow):
         """Keep image pane width proportional as the window changes size."""
         super().resizeEvent(event)
         self._apply_image_pane_width()
+        self._fit_instructions_font()
 
 
 def create_main_window(usingHardwareButton: bool):
