@@ -1616,17 +1616,22 @@ def display_image(image_path, label=None, labelQR=None, labelQRText=None):
             if labelQRText:
                 labelQRText.setFixedWidth(QR_size)
 
-            # Position the combined container at lower-right of the image label
-            container = labelQR.parentWidget()
-            if container:
-                container.adjustSize()
-                label_top_left = label.mapToGlobal(QtCore.QPoint(0, 0))
-                container.move(
-                    label_top_left.x() + label.width() - QR_size,
-                    label_top_left.y() + label.height() - container.height(),
-                )
-                container.show()
-                container.raise_()
+            # Position the combined container at lower-right of the image label.
+            # Defer with singleShot so the Qt layout has time to settle before
+            # we read mapToGlobal coordinates (critical on slower hardware like RPi).
+            def _position_qr():
+                container = labelQR.parentWidget()
+                if container and not gw.isQuitting:
+                    container.adjustSize()
+                    label_top_left = label.mapToGlobal(QtCore.QPoint(0, 0))
+                    container.move(
+                        label_top_left.x() + label.width() - QR_size,
+                        label_top_left.y() + label.height() - container.height(),
+                    )
+                    container.show()
+                    container.raise_()
+
+            QtCore.QTimer.singleShot(0, _position_qr)
         else:
             # No QR file for this image — hide the container
             container = labelQR.parentWidget()
