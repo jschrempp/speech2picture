@@ -1239,20 +1239,34 @@ class _MainWindow(QtWidgets.QMainWindow):
 
         # --- QR for generated image (only if S3 enabled) ---
         if gw.useS3:
+            self.qrContainer = QtWidgets.QWidget(
+                None,
+                QtCore.Qt.WindowType.FramelessWindowHint | QtCore.Qt.WindowType.WindowStaysOnTopHint,
+            )
+            self.qrContainer.setAttribute(QtCore.Qt.WidgetAttribute.WA_TranslucentBackground, False)
+            self.qrContainer.setStyleSheet("background-color: #FFFFFF;")
+
             self.labelQRForImage = QtWidgets.QLabel()
             self.labelQRForImage.setStyleSheet(
-                "background-color: #000000; border: 1px solid #000000;"
+                "background-color: #000000; border: none;"
             )
-            self.labelQRForImage.hide()
+            self.labelQRForImage.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
             self.labelQRForImageText = QtWidgets.QLabel("scan to download image")
             self.labelQRForImageText.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
             self.labelQRForImageText.setStyleSheet(
                 "font: 10px Helvetica; color: #000000; background-color: #FFFFFF;"
-                " border: 1px solid #000000;"
             )
-            self.labelQRForImageText.hide()
+
+            qr_layout = QtWidgets.QVBoxLayout()
+            qr_layout.setContentsMargins(0, 0, 0, 0)
+            qr_layout.setSpacing(0)
+            qr_layout.addWidget(self.labelQRForImage)
+            qr_layout.addWidget(self.labelQRForImageText)
+            self.qrContainer.setLayout(qr_layout)
+            self.qrContainer.hide()
         else:
+            self.qrContainer = None
             self.labelQRForImage = None
             self.labelQRForImageText = None
 
@@ -1587,25 +1601,34 @@ def display_image(image_path, label=None, labelQR=None, labelQRText=None):
             QRimg = QRimg.resize((QR_size, QR_size), Image.NEAREST)
 
             labelQR.setPixmap(_pil_to_qpixmap(QRimg))
-            # Position at lower-right corner of the image label
             labelQR.setFixedSize(QR_size, QR_size)
-            labelQR.move(
-                label.x() + label.width() - QR_size,
-                label.y() + label.height() - QR_size - 10,
-            )
-            labelQR.show()
-            labelQR.raise_()
 
             if labelQRText:
                 labelQRText.setFixedWidth(QR_size)
-                labelQRText.move(
-                    labelQR.x(),
-                    labelQR.y() + QR_size,
-                )
-                labelQRText.show()
-                labelQRText.raise_()
 
-            update_main_window()
+            # Position the combined container at lower-right of the image label
+            container = labelQR.parentWidget()
+            if container:
+                container.adjustSize()
+                label_top_left = label.mapToGlobal(QtCore.QPoint(0, 0))
+                container.move(
+                    label_top_left.x() + label.width() - QR_size,
+                    label_top_left.y() + label.height() - container.height(),
+                )
+                container.show()
+                container.raise_()
+        else:
+            # No QR file for this image — hide the container
+            container = labelQR.parentWidget()
+            if container:
+                container.hide()
+    elif labelQR:
+        # skip_QR is True or S3 not in use — hide the container
+        container = labelQR.parentWidget()
+        if container:
+            container.hide()
+
+    update_main_window()
 
     return label
 
