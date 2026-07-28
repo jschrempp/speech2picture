@@ -885,7 +885,7 @@ def getImageURL(phrase):
                 if phrase_has_style or not mod:
                     prompt = f"Generate a picture WITHOUT ANY TEXT OR WRITING IN THE PICTURE and some randomness for the following: '{phrase}'"
                 else:
-                    prompt = f"Generate a picture {mod} and interpret it creatively for the following: '{phrase}'"
+                    prompt = f"Generate a picture WITHOUT ANY TEXT OR WRITING IN THE PICTURE  {mod} and interpret it creatively for the following: '{phrase}'"
                 prompts_and_indices.append((i, prompt))
 
             # Fire all 4 API calls concurrently
