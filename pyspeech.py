@@ -1567,9 +1567,19 @@ def display_image(image_path, label=None, labelQR=None, labelQRText=None):
 
         # Scale to the actual label space assigned by the layout. This avoids
         # forcing a size larger than the grid cell, which can crop the bottom.
+        # Process events first so the layout has a chance to settle (important
+        # on slower hardware like Raspberry Pi where the first call may race
+        # with the initial layout pass).
+        QtWidgets.QApplication.processEvents()
         available_size = label.contentsRect().size()
         if available_size.width() <= 1 or available_size.height() <= 1:
             available_size = label.size()
+        # Fall back to minimum size if layout still hasn't settled (e.g. RPi).
+        min_size = label.minimumSize()
+        available_size = QtCore.QSize(
+            max(available_size.width(), min_size.width()),
+            max(available_size.height(), min_size.height()),
+        )
 
         scaled_pixmap = pixmap.scaled(
             available_size,
