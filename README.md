@@ -140,11 +140,11 @@ the `./idleDisplayFiles` folder.
 We suggest that you periodically look at the new files, remove any offensive ones, and add them to the 
 list of files for idle display. To do this remotely:
 
-1. `mkdir temp`
-2. `cd temp`
-3. `scp -r <user>@<ip address>:~/speech2picture/history .`
-4. Examine the files you just downloaded and remove any you have concerns about
-5. `scp -r . <user>@<ip address>:~/speech2picture/idleDisplayFiles`
+1.   mkdir temp
+2.   cd temp
+3.   scp -r <user>@<ip address>:~/speech2picture/history .
+4.   examine the files you just downloaded and remove any you have concerns about
+5.   scp -r . <user>@<ip address>:~/speech2picture/idleDisplayFiles
 
 If you are using the s3 option to store the files with a QR code, then instead 
 copy new files to the folder addToIdleDisplayFiles and then run 
@@ -157,3 +157,20 @@ OpenAI currently costs a few pennies to use. Running this for an hour typically 
 ## Credits
 Based on the WhisperFrame project idea on Hackaday:  
 https://hackaday.com/2023/09/22/whisperframe-depicts-the-art-of-conversation/
+
+# Update Version 2.0
+
+Migrated from Dall-E 3 to chatgpt something something something. No need for a new API key, they just canned the old image generation. This change was pretty easy (using CoPilot). Only big deal at first is that the new images are 1kx1k instead of 512 so that had to be handled.
+
+Then I found that they were lacking the old diversity. The images were a bit different, but basically the same. Booring. So, instead of one API call to get 4 images I now do 4 API calls to get 4 different images and each of the 4 api calls will use a different random modifier. I actually like it better than the original.
+
+One final problem. Using artist names (Hopper, Adams, Van Gogh, etc) tripped the openAI safety system too often. Apparently they didn't like the name being close to a body modifier (A fat green cat as a painting by Hopper) or they felt that the artist was too recent and able to make copyright claims. I changed the modifiers to use "in the style of" and then replaced Ansel Adams with "American Realism" (thanks google for an analysis of each artist's style). It seems to work just as well. 
+
+Lastly, doing 4 API calls took 4 times as long, that was a drag. I had CoPilot rewrite it so all four API calls ran concurrently and added a "working on 1 of 4" to the pop up dialog. 
+
+I think the changes are all ok and it's a bit more fun that the old version.
+
+Jim
+
+ 
+
