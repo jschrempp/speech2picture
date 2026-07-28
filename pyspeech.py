@@ -1763,9 +1763,12 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
 
         changeBlinkRate(BLINK_FOR_AUDIO_CAPTURE)
 
+        if config.isMacOS:
+            # On macOS, wait for spoken prompt to finish before showing Speak Now.
+            os.system('say "Now recording."')
+
         # record audio from the default microphone
         display_text_in_message_window("Speak Now\r\nYou have 10 seconds", labelForMessageDisplay)
-        if config.isMacOS: os.system('say "Recording."')
         soundFileName = recordAudioFromMicrophone(settings.duration)
         display_text_in_message_window("Recording Complete, now analyzing", labelForMessageDisplay)
         if config.isMacOS: os.system('say "Recording complete."')
