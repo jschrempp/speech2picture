@@ -891,6 +891,7 @@ def getImageURL(phrase):
             # Fire all 4 API calls concurrently
             image_urls = [None] * num_images
             completed_count = 0
+            requested_count = 0
             with ThreadPoolExecutor(max_workers=num_images) as executor:
                 future_to_index = {}
                 for idx, prompt in prompts_and_indices:
@@ -904,6 +905,17 @@ def getImageURL(phrase):
                         )
                     )
                     future_to_index[future] = idx
+                    requested_count += 1
+
+                    # Update progress in the message window as each request is submitted.
+                    request_msg = (
+                        f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
+                        f'requested {requested_count} of {num_images}'
+                    ) if last_transcript else f"requested {requested_count} of {num_images}"
+                    display_text_in_message_window(
+                        request_msg,
+                        labelToUse=getattr(gw, 'labelForMessage', None),
+                    )
 
                 for future in as_completed(future_to_index):
                     idx = future_to_index[future]
@@ -928,8 +940,7 @@ def getImageURL(phrase):
 
     except Exception as e:
         logger.error(f"Image generation failed: {str(e)}")
-        display_text_in_message_window(f"Image generation failed: {str(e)}")
-        raise RuntimeError(f"Image generation failed: {str(e)}")
+        raise
 
 
 def postProcessImages(imageURLs, imageModifiers, keywords, timestr, filePrefix):
@@ -1089,6 +1100,14 @@ class _MainWindow(QtWidgets.QMainWindow):
         self._main_grid.setColumnStretch(7, 0)
         self._main_grid.setColumnMinimumWidth(2, 100)
         self._main_grid.setColumnMinimumWidth(3, 100)
+
+        # Row stretch: give instructions rows more vertical space
+        self._main_grid.setRowStretch(0, 3)  # instructions top
+        self._main_grid.setRowStretch(1, 3)  # instructions bottom
+        self._main_grid.setRowStretch(2, 1)  # QR
+        self._main_grid.setRowStretch(3, 1)  # credits
+        self._main_grid.setRowStretch(4, 1)  # command hint
+        self._main_grid.setRowStretch(5, 1)  # quit button
         self._image_pane_ratio = 0.52  # picture display width
 
         # --- Instructions text ---
@@ -1106,13 +1125,16 @@ class _MainWindow(QtWidgets.QMainWindow):
             QtCore.Qt.AlignmentFlag.AlignHCenter | QtCore.Qt.AlignmentFlag.AlignTop
         )
         self._labelInstructions.setWordWrap(True)
-        self._labelInstructions.setMaximumWidth(560)
-        self._labelInstructions.setMinimumHeight(320)
-        self._instruction_font_max_px = 36
-        self._instruction_font_min_px = 18
+        self._labelInstructions.setMinimumHeight(360)
+        self._labelInstructions.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
+        self._instruction_font_max_px = 48
+        self._instruction_font_min_px = 24
         self._instruction_font_family = self._pick_instruction_font_family()
         self._set_instructions_font_size(self._instruction_font_max_px)
-        self._main_grid.addWidget(self._labelInstructions, 0, 1, 2, 4)
+        self._main_grid.addWidget(self._labelInstructions, 0, 0, 2, 6)
 
         # --- Main image label ---
         self.labelForImage = QtWidgets.QLabel()
@@ -1125,37 +1147,32 @@ class _MainWindow(QtWidgets.QMainWindow):
             QtWidgets.QSizePolicy.Policy.Expanding,
             QtWidgets.QSizePolicy.Policy.Expanding,
         )
-        self._main_grid.addWidget(self.labelForImage, 0, 6, 5, 1)
+        self._main_grid.addWidget(self.labelForImage, 0, 6, 6, 1)
 
-        # --- QR code (static) ---
+        # --- QR code (static) + QR instructions in a horizontal layout ---
         imgQR = Image.open("S2PQR.png")
         imgQR = imgQR.resize((150, 150), Image.NEAREST)
         self._labelQR = QtWidgets.QLabel()
         self._labelQR.setPixmap(_pil_to_qpixmap(imgQR))
         self._labelQR.setStyleSheet("background-color: #52837D;")
-        self._main_grid.addWidget(
-            self._labelQR,
-            4,
-            2,
-            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignBottom,
-        )
+        self._labelQR.setFixedWidth(160)
 
-        # --- QR instructions ---
         self._labelQRText = QtWidgets.QLabel(
             "Scan this QR code for more instructions and tips."
         )
-        self._labelQRText.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        self._labelQRText.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
+        )
         self._labelQRText.setWordWrap(True)
-        self._labelQRText.setMaximumWidth(280)
         self._labelQRText.setStyleSheet(
             "font: 18px Helvetica; color: #FFFFFF; background-color: #52837D;"
         )
-        self._main_grid.addWidget(
-            self._labelQRText,
-            4,
-            3,
-            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignBottom,
-        )
+
+        self._qr_layout = QtWidgets.QHBoxLayout()
+        self._qr_layout.setSpacing(20)
+        self._qr_layout.addWidget(self._labelQR)
+        self._qr_layout.addWidget(self._labelQRText, 1)
+        self._main_grid.addLayout(self._qr_layout, 2, 0, 1, 6)
 
         # --- Credits ---
         self._labelCredits = QtWidgets.QLabel(
@@ -1163,11 +1180,17 @@ class _MainWindow(QtWidgets.QMainWindow):
         )
         self._labelCredits.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
         self._labelCredits.setWordWrap(True)
-        self._labelCredits.setMaximumWidth(300)
         self._labelCredits.setStyleSheet(
             "font: 18px Helvetica; color: #FFFFFF; background-color: #52837D;"
         )
-        self._main_grid.addWidget(self._labelCredits, 2, 0, 1, 3)
+        self._main_grid.addWidget(
+            self._labelCredits,
+            3,
+            0,
+            1,
+            6,
+            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
+        )
 
         # --- Buttons ---
         button_layout = QtWidgets.QHBoxLayout()
@@ -1187,27 +1210,33 @@ class _MainWindow(QtWidgets.QMainWindow):
         )
         self._buttonQuit.clicked.connect(quitButtonPressed)
 
-        # Place Quit in the lower-left area of the main window.
-        self._main_grid.addWidget(
-            self._buttonQuit,
-            4,
-            0,
-            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignBottom,
-        )
-
-        self._main_grid.addLayout(button_layout, 3, 2, 1, 2)
-
         # --- Command hint ---
         self._labelCommandHint = QtWidgets.QLabel(
             "show commands  v: " + config.version
         )
         self._labelCommandHint.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
         self._labelCommandHint.setWordWrap(True)
-        self._labelCommandHint.setMaximumWidth(300)
         self._labelCommandHint.setStyleSheet(
             "font: 12px Helvetica; color: #FFFFFF; background-color: #52837D;"
         )
-        self._main_grid.addWidget(self._labelCommandHint, 3, 0, 1, 1)
+        self._main_grid.addWidget(
+            self._labelCommandHint,
+            4,
+            0,
+            1,
+            6,
+            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
+        )
+
+        # Place Quit in the lower-left area of the main window.
+        self._main_grid.addWidget(
+            self._buttonQuit,
+            5,
+            0,
+            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignBottom,
+        )
+
+        self._main_grid.addLayout(button_layout, 5, 2, 1, 2)
 
         # --- QR for generated image (only if S3 enabled) ---
         if gw.useS3:
@@ -1894,14 +1923,22 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
             print ("AI Image Error: " + str(e))
             logToFile.info("AI Image Error: " + str(e), exc_info=True)
 
-            if 'content_policy_violation' in str(e):
+            error_text = str(e)
+            error_text_lower = error_text.lower()
+
+            if 'insufficient_quota' in error_text_lower or 'rate limit' in error_text_lower or 'error code: 429' in error_text_lower:
+                msg = (
+                    "OpenAI API quota/rate limit reached. "
+                    "Please check your OpenAI billing/quota, then try again."
+                )
+            elif 'content_policy_violation' in error_text:
                 # this is a common error, so we'll display a message to the user
                 msg = f'The AI Safety System rejected this prompt. Please try again.'
-            elif 'safety' in str(e).lower():
+            elif 'safety' in error_text_lower:
                 msg = f'The AI Safety System rejected this prompt. Please try again.'
-            elif 'something went wrong' in str(e):
+            elif 'something went wrong' in error_text_lower:
                 msg = f'Something went wrong with the OpenAI image generation.  Please try again'
-            elif 'server had an error' in str(e):
+            elif 'server had an error' in error_text_lower:
                 msg = f'OpenAI had an unspecified server error.  Please try again'
             else:
                 msg = f'We had an error:\n\r "{str(e)}" \n\r\n\rPlease try again.'
@@ -2139,7 +2176,33 @@ def main():
             for i in range(0, settings.numLoops, 1):
                 # this is where all the work happens
                 # collect audio, transcribe, summarize, extract keywords, generate images, display images
-                audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix, labelQRForImage, labelQRForImageText)  # XXX
+                try:
+                    audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, labelForStatusDisplay, filePrefix, labelQRForImage, labelQRForImageText)  # XXX
+                except Exception as e:
+                    error_text = str(e)
+                    error_text_lower = error_text.lower()
+
+                    if ('insufficient_quota' in error_text_lower
+                        or 'rate limit' in error_text_lower
+                        or 'error code: 429' in error_text_lower):
+                        msg = (
+                            "OpenAI API quota/rate limit reached. "
+                            "Please check your OpenAI billing/quota, then try again."
+                        )
+                        display_text_in_message_window(msg, labelForMessageDisplay)
+
+                        # Keep GUI responsive while message is shown.
+                        for _ in range(100):
+                            QtWidgets.QApplication.processEvents()
+                            time.sleep(0.1)
+
+                        display_text_in_message_window()  # Hide the message window
+                        update_main_window()
+                        changeBlinkRate(BLINK_STOP)
+
+                        logger.warning("Quota/rate-limit error handled without aborting program.", exc_info=True)
+                    else:
+                        raise
 
                 if not settings.isUsingHardwareButtons and settings.numLoops > 1: 
                     # delay before the next for loop iteration, we don't do this when using hardware buttons
