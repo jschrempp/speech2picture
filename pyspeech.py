@@ -140,7 +140,7 @@ v 0.5 Initial version
 v 0.6 2023-11-12 inverted Go Button logic so it is active low (pulled to ground)
 v 0.7 updated to python 3.12 and openAI 1.0.0 (wow that was a pain)
       BE SURE to read updated install instructions above
-v 1.0 consolidated GUI into one window using tkinter grid and a pop up to show the transcript
+v 1.0 consolidated GUI into one window using Qt grid and a pop up to show the transcript
 v 1.2 Added capability to store images created in the AWS S3 cloud and display a QR code to them for instant download
 v 2.0 Added capability to generate 4 images at once, each with a different style modifier.
       Changed from gpt-image-1 to gpt-image-1.5
@@ -161,7 +161,6 @@ import os
 import select
 import sys
 import random
-import tkinter as tk
 import json
 import string
 import base64
@@ -170,8 +169,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 from queue import Queue
 from enum import IntEnum
-from PIL import Image, ImageDraw, ImageFont, ImageTk
+from PIL import Image, ImageDraw, ImageFont
 from s3_and_qr import upload_to_s3_and_generate_qr
+
+from PyQt6 import QtWidgets, QtCore, QtGui
 
 import openai
 
@@ -192,7 +193,7 @@ class Config:
         self.single_image = False
         self.isQuitting = False
 
-        # Window references (only accessed from the main / tkinter thread)
+        # Window references (only accessed from the main / Qt thread)
         self.windowMain = None
         self.windowForMessages = None
         self.windowForStatus = None
@@ -402,12 +403,10 @@ def check_dependencies():
         issues.append("Pillow is not installed.  Run: pip install Pillow")
         all_ok = False
 
-    # --- tkinter (GUI) ---------------------------------------------------------
-    if importlib.util.find_spec("tkinter") is None:
+    # --- Qt (GUI) -------------------------------------------------------------
+    if importlib.util.find_spec("PyQt6") is None:
         issues.append(
-            "tkinter is not available.  On macOS ensure python is from python.org "
-            "(the system python may lack tkinter).  On Linux: "
-            "sudo apt-get install python3-tk"
+            "PyQt6 is not installed.  Run: pip install PyQt6"
         )
         all_ok = False
 
@@ -464,9 +463,9 @@ handler.setFormatter(formatter)
 logToFile.addHandler(handler)
 
 
-# create root window for display and hide it
-root = tk.Tk()
-root.withdraw()  # Hide the root window
+# create Qt application (must be done before any widgets)
+app = QtWidgets.QApplication(sys.argv)
+app.setQuitOnLastWindowClosed(False)
 
 
 if not config.isMacOS:
@@ -1018,405 +1017,409 @@ def generateErrorImage(e, timestr):
 ''' 
 Window functions
 '''
-def create_main_window(usingHardwareButton):
-    '''
-    Create the main window and return the label to display the images
-    '''
-    global gw   # so that the changes made in here will affect the global variable
 
-    gw.windowMain = tk.Toplevel(root)
-    gw.windowMain.title("Speech 2 Picture")
-    gw.windowMain.protocol("WM_DELETE_WINDOW", quitButtonPressed)
-    
-    # Bind ESC key to exit fullscreen/kiosk mode
-    gw.windowMain.bind("<Escape>", lambda event: quitButtonPressed())
-    
-    gw.windowMain.configure(bg='#52837D')
-    if gw.kiosk_mode:
-        import time
-        time.sleep(4.0)  # Give window manager time to fully initialize on boot
-        gw.windowMain.attributes("-fullscreen", True)
-    else:
-        print ("mike - not running in kiosk mode, don't fill the screen")
-        # find the screen size and center the window
-        screen_width = gw.windowMain.winfo_screenwidth()
-        screen_height = gw.windowMain.winfo_screenheight()
-        # gw.windowMain.minsize(int(screen_width*.8), int(screen_height*.9))
-        #set window size to a bit less than full screen
-        gw.windowMain.geometry(str(int(screen_width*.95)) + "x" + str(int(screen_height*.95)))
-        #set window position
-        gw.windowMain.geometry("+%d+%d" % (screen_width*0.02, screen_height*0.02))
-    
-
-    
-   
-    # Instructions text
-    if gw.useS3:  QR_download_text = " Scan the QR to download."  # only show this is the QR for downloading is being displayed.
-    else:         QR_download_text = ""
-
-    INSTRUCTIONS_TEXT = ('\r\nTRY ME NOW !\rAn Interactive Art Exhibit\n\rWhen you are ready, press and release the'
-                    + ' button. The light will flash quickly. You will have 10 seconds to speak a few words to use to'
-                    + ' make an AI image. Then wait.'
-                    + ' Images will appear shortly.'
-                    + QR_download_text
-                    + '\r\nUntil then, enjoy some previous "promptography" images!')
-
-    labelTextLong = tk.Label(gw.windowMain, text=INSTRUCTIONS_TEXT, 
-                     font=("Helvetica", 28),
-                     justify=tk.CENTER,
-                     wraplength=450,
-                     bg='#52837D',
-                     fg='#FFFFFF',
-                     )
-
-    # add the QR to the window
-    imgQR = Image.open("S2PQR.png")
-    imgQR = imgQR.resize((150,150), Image.NEAREST)
-    photoImage = ImageTk.PhotoImage(imgQR)
-    labelQR = tk.Label(gw.windowMain,
-                    image=photoImage,
-                    bg='#52837D')
-    labelQR.image = photoImage  # Keep a reference to the image to prevent it from being garbage collected
-
-    # add QR instructions to the window
-    labelQRText = tk.Label(gw.windowMain, text="Scan this QR code for more instructions and tips.", 
-                     font=("Helvetica", 18),
-                     justify=tk.LEFT,
-                     wraplength=280,
-                     bg='#52837D',
-                     fg='#FFFFFF',
-                     )
-
-    # add credits to the window
-    labelCreditsText = tk.Label(gw.windowMain, text="Created by Jim Schrempp at Maker Nexus in Sunnyvale, California." ,
-                     font=("Helvetica", 18),
-                     justify=tk.LEFT,
-                     wraplength=300,
-                     bg='#52837D',
-                     fg='#FFFFFF',
-                     )
-
-    # add a quit button to the window
-    buttonQuit = tk.Button(gw.windowMain, text="Quit", command=quitButtonPressed,
-                            font=("Helvetica", 24), 
-                            bg='#FF0000', fg='#000000')
-    
-    # add a window button to exit fullscreen (only shown in kiosk mode)
-    buttonWindow = tk.Button(gw.windowMain, text="Window", command=exitFullscreenButtonPressed,
-                            font=("Helvetica", 12), 
-                            bg='#D3D3D3', fg='#000000')
+def _pil_to_qpixmap(pil_image: Image.Image) -> QtGui.QPixmap:
+    """Convert a PIL Image to a QPixmap."""
+    # Use an encoded image payload instead of a raw pixel buffer so Qt handles
+    # row stride/padding consistently across image modes and platforms.
+    buffer = BytesIO()
+    pil_image.save(buffer, format="PNG")
+    pixmap = QtGui.QPixmap()
+    pixmap.loadFromData(buffer.getvalue(), "PNG")
+    return pixmap
 
 
-    labelCommandHint = tk.Label(gw.windowMain, text="Say 'show commands' for a list of commands.",
-                     font=("Helvetica", 18),
-                     justify=tk.LEFT,
-                     wraplength=300,
-                     bg='#52837D',
-                     fg='#FFFFFF',
-                     )
-    labelCommandHint = tk.Label(gw.windowMain, text="show commands  v: " + config.version, font=("Helvetica", 12),
-                     justify=tk.LEFT, wraplength=300, bg='#52837D', fg='#FFFFFF')
+class _MainWindow(QtWidgets.QMainWindow):
+    """Main application window for Speech2Picture."""
 
-    # add a label to display the images
-    labelForImage = tk.Label(gw.windowMain)
-    
-    # The label will be dimensioned when the image is loaded
-    labelForImage.configure(bg='#000000', highlightcolor="#f4ff55", 
-                                highlightthickness=10,) 
-    
-    if gw.useS3:
-        # add a label to display the QRcode for the image
-        labelQRForImage = tk.Label(gw.windowMain)
-        
-        # The label will be dimensioned when the image is loaded
-        labelQRForImage.configure(bg='#000000', highlightthickness=1, highlightbackground='#000000')
-        
-        # add a label for QR code instructions
-        labelQRForImageText = tk.Label(gw.windowMain, text="scan to download image",
-                         font=("Helvetica", 10),
-                         justify=tk.CENTER,
-                         bg='#FFFFFF',
-                         fg='#000000',
-                         highlightthickness=1,
-                         highlightbackground='#000000')
-    else: 
-        labelQRForImage = None
-        labelQRForImageText = None
+    def __init__(self, usingHardwareButton: bool):
+        super().__init__()
+        global gw
 
-    
-    # set up the grid
-    gw.windowMain.grid_columnconfigure(0, weight=99, minsize=0)
-    gw.windowMain.grid_columnconfigure(1, weight=99, minsize=10)
-    gw.windowMain.grid_columnconfigure(2, weight=2,  minsize=100)
-    gw.windowMain.grid_columnconfigure(3, weight=2,  minsize=100)
-    gw.windowMain.grid_columnconfigure(4, weight=99, minsize=10)
-    gw.windowMain.grid_columnconfigure(5, weight=99, minsize=10)
-    gw.windowMain.grid_columnconfigure(6, weight=1)
-    gw.windowMain.grid_columnconfigure(7, weight=99, minsize=10)
+        self.setWindowTitle("Speech 2 Picture")
+        self.setStyleSheet("background-color: #52837D;")
 
-    labelTextLong.grid(   row=0, column=1, columnspan=4, padx=(0,0),            sticky=tk.EW)
-    labelForImage.grid(   row=0, column=6, rowspan=5,    padx=(0,0),   pady=10, sticky=tk.NSEW)
-    # QR code and text will be positioned using place() in display_image function
-    
+        # --- Central widget and main layout ---
+        central = QtWidgets.QWidget()
+        self.setCentralWidget(central)
+        self._main_grid = QtWidgets.QGridLayout(central)
+        self._main_grid.setContentsMargins(10, 10, 10, 10)
+        self._main_grid.setSpacing(10)
 
-    labelQR.grid(         row=1, column=2,               padx=(0,10),  pady=10, sticky=tk.NSEW)
-    labelQRText.grid(     row=1, column=3,               padx=(10,0),  pady=10, sticky=tk.W)
-    labelCreditsText.grid(row=2, column=1, columnspan=4, padx=0,       pady=10, sticky=tk.W)
-    buttonWindow.grid(    row=3, column=2, columnspan=1, padx=(0,5),   pady=20, sticky=tk.E)
-    buttonQuit.grid(      row=3, column=3, columnspan=2, padx=(5,0),   pady=20, sticky=tk.E)
-    labelCommandHint.grid(row=4, column=0, columnspan=3, padx=10,      pady=10, sticky=tk.W)
+        # Base column stretch values; image column stretch is recomputed from ratio.
+        self._main_grid.setColumnStretch(0, 1)
+        self._main_grid.setColumnStretch(1, 1)
+        self._main_grid.setColumnStretch(2, 1)
+        self._main_grid.setColumnStretch(3, 1)
+        self._main_grid.setColumnStretch(4, 1)
+        self._main_grid.setColumnStretch(5, 1)
+        self._main_grid.setColumnStretch(6, 14)
+        self._main_grid.setColumnStretch(7, 0)
+        self._main_grid.setColumnMinimumWidth(2, 100)
+        self._main_grid.setColumnMinimumWidth(3, 100)
+        self._image_pane_ratio = 0.52  # picture display width
 
-    if usingHardwareButton:
-        # remove quit button from the window (but keep window button for kiosk mode)
-        buttonQuit.grid_remove()
-    
-    if not gw.kiosk_mode:
-        # hide window button when not in kiosk mode
-        buttonWindow.grid_remove()
+        # --- Instructions text ---
+        qr_text = " Scan the QR to download." if gw.useS3 else ""
+        INSTRUCTIONS_TEXT = (
+            '\r\nTRY ME NOW !\r\nAn Interactive Art Exhibit\n\r\n'
+            'When you are ready, press and release the button. '
+            'The light will flash quickly. You will have 10 seconds '
+            'to speak a few words to use to make an AI image. Then wait. '
+            'Images will appear shortly.' + qr_text +
+            '\r\n\nUntil then, enjoy some previous "promptography" images!'
+        )
+        self._labelInstructions = QtWidgets.QLabel(INSTRUCTIONS_TEXT)
+        self._labelInstructions.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignHCenter | QtCore.Qt.AlignmentFlag.AlignTop
+        )
+        self._labelInstructions.setWordWrap(True)
+        self._labelInstructions.setMaximumWidth(560)
+        self._labelInstructions.setMinimumHeight(320)
+        self._labelInstructions.setStyleSheet(
+            "font-size: 36px; font-weight: 700; font-family: 'Noto Sans', 'DejaVu Sans', 'Verdana', 'Arial';"
+            " color: #FFFFFF; background-color: #52837D;"
+        )
+        self._main_grid.addWidget(self._labelInstructions, 0, 1, 2, 4)
 
-    '''
-    # good debug code
-    # add a border around all the widgets
-    for widget in [labelTextLong, labelQR, labelQRText, labelCreditsText, buttonQuit, labelCommandHint]:
-        widget.configure(highlightcolor="#f4ff55", highlightthickness=10)
-    '''
+        # --- Main image label ---
+        self.labelForImage = QtWidgets.QLabel()
+        self.labelForImage.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+        self.labelForImage.setStyleSheet(
+            "background-color: #000000; border: 10px solid #f4ff55;"
+        )
+        self.labelForImage.setMinimumSize(400, 400)
+        self.labelForImage.setSizePolicy(
+            QtWidgets.QSizePolicy.Policy.Expanding,
+            QtWidgets.QSizePolicy.Policy.Expanding,
+        )
+        self._main_grid.addWidget(self.labelForImage, 0, 6, 5, 1)
 
-    update_main_window()
+        # --- QR code (static) ---
+        imgQR = Image.open("S2PQR.png")
+        imgQR = imgQR.resize((150, 150), Image.NEAREST)
+        self._labelQR = QtWidgets.QLabel()
+        self._labelQR.setPixmap(_pil_to_qpixmap(imgQR))
+        self._labelQR.setStyleSheet("background-color: #52837D;")
+        self._main_grid.addWidget(
+            self._labelQR,
+            4,
+            2,
+            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignBottom,
+        )
 
-    return labelForImage, labelQRForImage, labelQRForImageText
-   
+        # --- QR instructions ---
+        self._labelQRText = QtWidgets.QLabel(
+            "Scan this QR code for more instructions and tips."
+        )
+        self._labelQRText.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        self._labelQRText.setWordWrap(True)
+        self._labelQRText.setMaximumWidth(280)
+        self._labelQRText.setStyleSheet(
+            "font: 18px Helvetica; color: #FFFFFF; background-color: #52837D;"
+        )
+        self._main_grid.addWidget(
+            self._labelQRText,
+            4,
+            3,
+            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignBottom,
+        )
+
+        # --- Credits ---
+        self._labelCredits = QtWidgets.QLabel(
+            "Created by Jim Schrempp at Maker Nexus in Sunnyvale, California."
+        )
+        self._labelCredits.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        self._labelCredits.setWordWrap(True)
+        self._labelCredits.setMaximumWidth(300)
+        self._labelCredits.setStyleSheet(
+            "font: 18px Helvetica; color: #FFFFFF; background-color: #52837D;"
+        )
+        self._main_grid.addWidget(self._labelCredits, 2, 0, 1, 3)
+
+        # --- Buttons ---
+        button_layout = QtWidgets.QHBoxLayout()
+        button_layout.addStretch()
+
+        self._buttonWindow = QtWidgets.QPushButton("Window")
+        self._buttonWindow.setStyleSheet(
+            "font: 12px Helvetica; background-color: #D3D3D3; color: #000000;"
+        )
+        self._buttonWindow.clicked.connect(exitFullscreenButtonPressed)
+        button_layout.addWidget(self._buttonWindow)
+        button_layout.addSpacing(24)
+
+        self._buttonQuit = QtWidgets.QPushButton("Quit")
+        self._buttonQuit.setStyleSheet(
+            "font: 24px Helvetica; background-color: #D3D3D3; color: #000000;"
+        )
+        self._buttonQuit.clicked.connect(quitButtonPressed)
+        button_layout.addWidget(self._buttonQuit)
+
+        self._main_grid.addLayout(button_layout, 3, 2, 1, 2)
+
+        # --- Command hint ---
+        self._labelCommandHint = QtWidgets.QLabel(
+            "show commands  v: " + config.version
+        )
+        self._labelCommandHint.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
+        self._labelCommandHint.setWordWrap(True)
+        self._labelCommandHint.setMaximumWidth(300)
+        self._labelCommandHint.setStyleSheet(
+            "font: 12px Helvetica; color: #FFFFFF; background-color: #52837D;"
+        )
+        self._main_grid.addWidget(self._labelCommandHint, 4, 0, 1, 2)
+
+        # --- QR for generated image (only if S3 enabled) ---
+        if gw.useS3:
+            self.labelQRForImage = QtWidgets.QLabel()
+            self.labelQRForImage.setStyleSheet(
+                "background-color: #000000; border: 1px solid #000000;"
+            )
+            self.labelQRForImage.hide()
+
+            self.labelQRForImageText = QtWidgets.QLabel("scan to download image")
+            self.labelQRForImageText.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
+            self.labelQRForImageText.setStyleSheet(
+                "font: 10px Helvetica; color: #000000; background-color: #FFFFFF;"
+                " border: 1px solid #000000;"
+            )
+            self.labelQRForImageText.hide()
+        else:
+            self.labelQRForImage = None
+            self.labelQRForImageText = None
+
+        # --- Visibility toggles ---
+        if usingHardwareButton:
+            self._buttonQuit.hide()
+        if not gw.kiosk_mode:
+            self._buttonWindow.hide()
+
+        # --- Kiosk / sizing ---
+        if gw.kiosk_mode:
+            time.sleep(4.0)
+            self.showFullScreen()
+        else:
+            screen = app.primaryScreen().availableGeometry()
+            w = int(screen.width() * 0.95)
+            h = int(screen.height() * 0.95)
+            x = int(screen.width() * 0.025)
+            y = int(screen.height() * 0.025)
+            self.setGeometry(x, y, w, h)
+
+        self._apply_image_pane_width()
+        QtCore.QTimer.singleShot(0, self._apply_image_pane_width)
+
+        gw.windowMain = self
+
+    def _apply_image_pane_width(self):
+        """Apply responsive width and stretch for the image column."""
+        margins = self._main_grid.contentsMargins()
+        available = self.width() - margins.left() - margins.right()
+        ratio = max(0.15, min(0.85, self._image_pane_ratio))
+        target = int(max(0, available) * ratio)
+
+        # Keep a practical floor that still allows ratio changes to be visible.
+        self._main_grid.setColumnMinimumWidth(6, max(400, target))
+
+        # Convert desired width ratio to grid stretch so extra space follows ratio.
+        other_total_stretch = 7  # columns 0-5 and 7 are each stretch 1
+        image_stretch = max(1, int(round((other_total_stretch * ratio) / (1.0 - ratio))))
+        self._main_grid.setColumnStretch(6, image_stretch)
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent):
+        """ESC exits fullscreen / quits."""
+        if event.key() == QtCore.Qt.Key.Key_Escape:
+            quitButtonPressed()
+        super().keyPressEvent(event)
+
+    def closeEvent(self, event: QtGui.QCloseEvent):
+        """Window close → quit."""
+        quitButtonPressed()
+        event.ignore()
+
+    def resizeEvent(self, event: QtGui.QResizeEvent):
+        """Keep image pane width proportional as the window changes size."""
+        super().resizeEvent(event)
+        self._apply_image_pane_width()
+
+
+def create_main_window(usingHardwareButton: bool):
+    """Create the main window and return widget references."""
+    global gw
+    win = _MainWindow(usingHardwareButton)
+    win.show()
+    QtWidgets.QApplication.processEvents()
+    return win.labelForImage, win.labelQRForImage, win.labelQRForImageText
+
 
 def update_main_window():
+    """Process pending Qt events."""
     global gw
-
     if gw.isQuitting:
         return
-    try:
-        gw.windowMain.update_idletasks()
-        gw.windowMain.update()
-    except tk.TclError:
-        pass
+    QtWidgets.QApplication.processEvents()
+
 
 def exitFullscreenButtonPressed():
-    '''exit fullscreen mode and resize window'''
+    """Exit fullscreen mode and resize window."""
     global gw
-    
-    # Exit fullscreen
-    gw.windowMain.attributes("-fullscreen", False)
-    
-    # Resize and center the window
-    screen_width = gw.windowMain.winfo_screenwidth()
-    screen_height = gw.windowMain.winfo_screenheight()
-    window_width = int(screen_width * 0.95)
-    window_height = int(screen_height * 0.95)
-    x_position = int(screen_width * 0.025)
-    y_position = int(screen_height * 0.025)
-    
-    gw.windowMain.geometry(f"{window_width}x{window_height}+{x_position}+{y_position}")
+    win = gw.windowMain
+    if win is None:
+        return
+    win.showNormal()
+    screen = app.primaryScreen().availableGeometry()
+    w = int(screen.width() * 0.95)
+    h = int(screen.height() * 0.95)
+    x = int(screen.width() * 0.025)
+    y = int(screen.height() * 0.025)
+    win.setGeometry(x, y, w, h)
+
 
 def quitButtonPressed():
-    '''quit the program'''
+    """Quit the program."""
     global gw
-
     gw.isQuitting = True
-    try:
-        if gw.windowMain is not None:
-            gw.windowMain.destroy()
-    except tk.TclError:
-        pass
-    try:
-        if gw.windowForMessages is not None:
-            gw.windowForMessages.destroy()
-    except tk.TclError:
-        pass
-    try:
-        if gw.windowForStatus is not None:
-            gw.windowForStatus.destroy()
-    except tk.TclError:
-        pass
+    QtWidgets.QApplication.quit()
+    # Give event loop a moment, then force exit
+    time.sleep(0.1)
     os._exit(0)
 
+
+class _PopupDialog(QtWidgets.QDialog):
+    """Reusable popup dialog for messages and status."""
+
+    def __init__(self, title: str, width: int, height: int,
+                 font_size: int, alignment, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle(title)
+        self.setMinimumSize(width, height)
+        self.setMaximumSize(width, height)
+        self.setWindowFlags(
+            self.windowFlags() | QtCore.Qt.WindowType.WindowStaysOnTopHint
+        )
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        frame = QtWidgets.QFrame()
+        frame.setStyleSheet(
+            "background-color: #ff0000; border: 2px solid #ffff55;"
+        )
+        frame_layout = QtWidgets.QVBoxLayout(frame)
+        frame_layout.setContentsMargins(5, 5, 5, 5)
+
+        self.label = QtWidgets.QLabel()
+        self.label.setAlignment(alignment)
+        self.label.setWordWrap(True)
+        self.label.setStyleSheet(
+            f"font: {font_size}px Helvetica; color: #000000;"
+            " background-color: #FFFFFF;"
+        )
+        frame_layout.addWidget(self.label)
+
+        layout.addWidget(frame)
+        self.hide()
+
+    def closeEvent(self, event: QtGui.QCloseEvent):
+        """Ignore close — just hide."""
+        self.hide()
+        event.ignore()
+
+
 def create_message_window():
-    '''
-    create a window to display the messages; return a label to display the images
-    '''
-    global gw  # so that the changes made in here will affect the global variable
-    
-    gw.windowForMessages = tk.Toplevel(root, bg='#555500',
-                                      highlightcolor="#550055", 
-                                      highlightthickness=20)
-    gw.windowForMessages.title("Messages")
+    """Create the message popup and return its label."""
+    global gw
+    dlg = _PopupDialog(
+        "Messages", 500, 500, 28,
+        QtCore.Qt.AlignmentFlag.AlignCenter,
+        parent=gw.windowMain,
+    )
+    gw.windowForMessages = dlg
+    return dlg.label
 
-    # center this window over the image window
-    messageWindowWidth = 500
-    messageWindowHeight = 500
-    messageWindowX = gw.windowMain.winfo_x() + (0.5*gw.windowMain.winfo_width()) - (0.5*messageWindowWidth)
-    messageWindowY = gw.windowMain.winfo_y() + (0.5*gw.windowMain.winfo_height()) - (0.5*messageWindowHeight)
-    gw.windowForMessages.geometry("+%d+%d" % (messageWindowX,messageWindowY)) 
-    gw.windowForMessages.minsize(messageWindowWidth, messageWindowHeight)
-    gw.windowForMessages.maxsize(messageWindowWidth, messageWindowHeight)
-
-    # print("message window x: " + str(messageWindowX))
-    # print("message window y: " + str(messageWindowY))
-
-    # Make cell column 0 row 0 expand to fill the window
-    gw.windowForMessages.grid_columnconfigure(0, weight=1) 
-    gw.windowForMessages.grid_rowconfigure(0, weight=1)
-
-
-    frameForMessage  = tk.Frame(gw.windowForMessages, bg='#ff0000',
-                                highlightcolor="#ffff55", 
-                                highlightthickness=2)
-    frameForMessage.grid(row=0, column=0, sticky=tk.NSEW)
-    # make cell column 0 row 0 expand to fill the frame
-    frameForMessage.grid_columnconfigure(0, weight=1)
-    frameForMessage.grid_rowconfigure(0, weight=1)
-
-    labelTextLong = tk.Label(frameForMessage,
-                     font=("Helvetica", 28),
-                     justify=tk.CENTER,
-                     wraplength=messageWindowWidth-80,
-                     bg='#FFFFFF',
-                     fg='#000000',
-                     )
-
-    # have the label fill the cell  
-    labelTextLong.grid(column=0, row=0, ipadx=5, ipady=5, sticky=tk.NSEW, )
-
-    gw.windowForMessages.attributes('-topmost', 1)  # Make the window always appear on top
-    gw.windowForMessages.withdraw()  # Hide the window until needed
-
-    return labelTextLong
 
 def create_status_window():
-    '''
-    create a window to display the status messages; return a label to display the images
-    '''
-    global gw  # so that the changes made in here will affect the global variable
-    
-    gw.windowForStatus = tk.Toplevel(root, bg='#555500',
-                                      highlightcolor="#550055", 
-                                      highlightthickness=20)
-    gw.windowForStatus.title("Status")
+    """Create the status popup and return its label."""
+    global gw
+    dlg = _PopupDialog(
+        "Status", 800, 600, 24,
+        QtCore.Qt.AlignmentFlag.AlignLeft,
+        parent=gw.windowMain,
+    )
+    gw.windowForStatus = dlg
+    return dlg.label
 
-    # center this window over the image window
-    statusWindowWidth = 800
-    statusWindowHeight = 600
-    statusWindowX = int(gw.windowMain.winfo_x() + (0.5*gw.windowMain.winfo_width()) - (0.5*statusWindowWidth))
-    statusWindowY = int(gw.windowMain.winfo_y() + (0.5*gw.windowMain.winfo_height()) - (0.5*statusWindowHeight))
-    #gw.windowForStatus.geometry("+%d+%d" % (statusWindowX,statusWindowY)) 
-    gw.windowForStatus.geometry("+%d+%d" % (200,200)) 
-    gw.windowForStatus.minsize(statusWindowWidth, statusWindowHeight)
-    gw.windowForStatus.maxsize(statusWindowWidth, statusWindowHeight)
 
-    # print ("statusWindowX: " + str(statusWindowX))
-    # print ("statusWindowY: " + str(statusWindowY))
-
-    # Make cell column 0 row 0 expand to fill the window
-    gw.windowForStatus.grid_columnconfigure(0, weight=1) 
-    gw.windowForStatus.grid_rowconfigure(0, weight=1)
-
-    frameForMessage  = tk.Frame(gw.windowForStatus, bg='#ff0000',
-                                highlightcolor="#ffff55", 
-                                highlightthickness=2)
-    frameForMessage.grid(row=0, column=0, sticky=tk.NSEW)
-    # make cell column 0 row 0 expand to fill the frame
-    frameForMessage.grid_columnconfigure(0, weight=1)
-    frameForMessage.grid_rowconfigure(0, weight=1)
-
-    labelTextLong2 = tk.Label(frameForMessage,
-                     font=("Helvetica", 24),
-                     justify=tk.LEFT,
-                     wraplength=statusWindowWidth-80,
-                     bg='#FFFFFF',
-                     fg='#000000',
-                     )
-
-    # have the label fill the cell  
-    labelTextLong2.grid(column=0, row=0, ipadx=5, ipady=5, sticky=tk.NSEW, )
-
-    gw.windowForStatus.attributes('-topmost', 1)  # Make the window always appear on top
-    gw.windowForStatus.withdraw()  # Hide the window until needed
-
-    return labelTextLong2
-
+def _center_popup_over_parent(popup: QtWidgets.QDialog):
+    """Center a popup dialog over its parent window."""
+    parent = popup.parentWidget()
+    if parent is None:
+        return
+    pg = parent.geometry()
+    pw, ph = pg.width(), pg.height()
+    px, py = pg.x(), pg.y()
+    dw, dh = popup.width(), popup.height()
+    popup.move(px + (pw - dw) // 2, py + (ph - dh) // 2)
 
 
 def display_text_in_status_window(message=None, labelToUse=None):
-    '''
-    display message in the status window
-    if labelToUse is None, then hide the window
-    '''
+    """Show/hide the status popup."""
     global gw
-
-    # Guard against destroyed widgets during shutdown
     if gw.isQuitting:
         return
-
     try:
-        # Recreate the status window if the user closed it
-        if gw.windowForStatus is None or not gw.windowForStatus.winfo_exists():
-            create_status_window()
+        if gw.windowForStatus is None or not gw.windowForStatus.isVisible():
+            # Recreate if needed
+            if gw.windowForStatus is None:
+                create_status_window()
+            else:
+                pass  # exists but hidden, that's fine
 
-        # If there's a message, show the window; if not, hide it
         if message is None or labelToUse is None:
-            # No message to display — just hide
-            gw.windowForStatus.withdraw()
+            if gw.windowForStatus is not None:
+                gw.windowForStatus.hide()
         else:
-            labelToUse.configure(text=message)
-            gw.windowForStatus.deiconify()
+            labelToUse.setText(message)
+            _center_popup_over_parent(gw.windowForStatus)
+            gw.windowForStatus.show()
 
-        gw.windowForStatus.update_idletasks()
-        gw.windowForStatus.update()
+        QtWidgets.QApplication.processEvents()
 
+        # Also process message window events
         display_text_in_message_window()
-        if gw.windowForMessages is not None and gw.windowForMessages.winfo_exists():
-            gw.windowForMessages.update_idletasks()
-            gw.windowForMessages.update()
-    except tk.TclError:
-        # Widget was destroyed (e.g., during quit), ignore
+        if gw.windowForMessages is not None and gw.windowForMessages.isVisible():
+            QtWidgets.QApplication.processEvents()
+    except Exception:
         pass
 
 
 def display_text_in_message_window(message=None, labelToUse=None):
-    '''
-    display message in the message window
-    if labelToUse is None, then hide the window
-    '''
+    """Show/hide the message popup."""
     global gw
-
-    # Guard against destroyed widgets during shutdown
     if gw.isQuitting:
         return
-
     try:
-        # Recreate the message window if the user closed it
-        if gw.windowForMessages is None or not gw.windowForMessages.winfo_exists():
-            create_message_window()
+        if gw.windowForMessages is None or not gw.windowForMessages.isVisible():
+            if gw.windowForMessages is None:
+                create_message_window()
 
-        # If there's a message, show the window; if not, hide it
         if message is None or labelToUse is None:
-            # No message to display — just hide
-            gw.windowForMessages.withdraw()
+            if gw.windowForMessages is not None:
+                gw.windowForMessages.hide()
         else:
-            labelToUse.configure(text=message)
-            gw.windowForMessages.deiconify()
+            labelToUse.setText(message)
+            _center_popup_over_parent(gw.windowForMessages)
+            gw.windowForMessages.show()
 
-        gw.windowForMessages.update_idletasks()
-        gw.windowForMessages.update()
-    except tk.TclError:
-        # Widget was destroyed (e.g., during quit), ignore
+        QtWidgets.QApplication.processEvents()
+    except Exception:
         pass
 
 
-def display_image(image_path, label=None, labelQR = None, labelQRText = None):
-    '''
-    display an image in the window using the label object
-    '''
-
+def display_image(image_path, label=None, labelQR=None, labelQRText=None):
+    """Display an image in the main window."""
     global gw
-
-    # Guard against destroyed widgets during shutdown
     if gw.isQuitting:
         return
 
@@ -1424,26 +1427,28 @@ def display_image(image_path, label=None, labelQR = None, labelQRText = None):
     logToFile.debug("display_image: " + image_path)
 
     if label is None:
-        print("Error: label is None")  
+        print("Error: label is None")
         return
 
-    # Open an image file
     try:
         img = Image.open(image_path)
-        #resize the image to fit the window
-        resizeFactor = 0.95
-        window_height = gw.windowMain.winfo_height()
-        labelDimensions = int(window_height * resizeFactor)
-        label.configure(width=labelDimensions, height=labelDimensions)
-        
-        new_width = int(labelDimensions * img.width / img.height)
-        new_height = int(labelDimensions)
-        img = img.resize((new_width,new_height), Image.NEAREST)
+        pixmap = _pil_to_qpixmap(img)
 
-        # Convert the image to a PhotoImage
-        photoImage = ImageTk.PhotoImage(img)
-        label.configure(image=photoImage)
-        label.image = photoImage  # Keep a reference to the image to prevent it from being garbage collected
+        # Scale to the actual label space assigned by the layout. This avoids
+        # forcing a size larger than the grid cell, which can crop the bottom.
+        available_size = label.contentsRect().size()
+        if available_size.width() <= 1 or available_size.height() <= 1:
+            available_size = label.size()
+
+        scaled_pixmap = pixmap.scaled(
+            available_size,
+            QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+            QtCore.Qt.TransformationMode.SmoothTransformation,
+        )
+        label.setPixmap(scaled_pixmap)
+
+        new_width = scaled_pixmap.width()
+        new_height = scaled_pixmap.height()
 
         update_main_window()
         skip_QR = False
@@ -1455,57 +1460,58 @@ def display_image(image_path, label=None, labelQR = None, labelQRText = None):
         logger.error(e)
         skip_QR = True
 
-    #update QR label
-    if labelQR and not skip_QR and gw.useS3: 
+    # Update QR label
+    if labelQR and not skip_QR and gw.useS3:
         QRFile = image_path.replace("-image.png", '-s3_url.jpg')
         if os.path.exists(QRFile):
-            QRimg =  Image.open(QRFile)
-            QR_resize = .15    # user 10% of full image space for the QR code
-            QR_size = int( QR_resize * min(new_width, new_height))
+            QRimg = Image.open(QRFile)
+            QR_resize = 0.15
+            QR_size = int(QR_resize * min(new_width, new_height))
             QRimg = QRimg.resize((QR_size, QR_size), Image.NEAREST)
 
-            # conver to photoImage
-            QR_photo = ImageTk.PhotoImage(QRimg)
-            labelQR.configure(image = QR_photo)
-            labelQR.image = QR_photo  # keep a reference to prevent garbage collection
-            
-            # Position QR code at lower right corner of main image, moved up 10 pixels
-            labelQR.place(in_=label, relx=1.0, rely=1.0, anchor=tk.SE, y=-10)
-            
-            # Position the text label below the QR code
+            labelQR.setPixmap(_pil_to_qpixmap(QRimg))
+            # Position at lower-right corner of the image label
+            labelQR.setFixedSize(QR_size, QR_size)
+            labelQR.move(
+                label.x() + label.width() - QR_size,
+                label.y() + label.height() - QR_size - 10,
+            )
+            labelQR.show()
+            labelQR.raise_()
+
             if labelQRText:
-                labelQRText.configure(wraplength=QR_size)
-                labelQRText.place(in_=labelQR, relx=0.5, rely=1.0, anchor=tk.N, width=QR_size)
+                labelQRText.setFixedWidth(QR_size)
+                labelQRText.move(
+                    labelQR.x(),
+                    labelQR.y() + QR_size,
+                )
+                labelQRText.show()
+                labelQRText.raise_()
 
             update_main_window()
 
     return label
 
-def display_random_history_image(labelForImageDisplay, labelQRForImage = None, labelQRForImageText = None):
-    '''
-    display a random image from the idleDisplayFiles in the window using the label object
-    '''
-    # static variable to hold last time an image was displayed
+
+def display_random_history_image(labelForImageDisplay, labelQRForImage=None,
+                                  labelQRForImageText=None):
+    """Display a random image from idleDisplayFiles."""
     if not hasattr(display_random_history_image, "lastImageDisplayedTime"):
-        display_random_history_image.lastImageDisplayedTime = 0  # it doesn't exist yet, so initialize it
+        display_random_history_image.lastImageDisplayedTime = 0
 
     if time.time() - display_random_history_image.lastImageDisplayedTime > 15:
-        
-        display_random_history_image.lastImageDisplayedTime =  time.time()
+        display_random_history_image.lastImageDisplayedTime = time.time()
 
-        # list all files in the idleDisplayFiles folder
         idleDisplayFolder = "./idleDisplayFiles"
         idleDisplayFiles = os.listdir(idleDisplayFolder)
-        #remove any non-png files from Files
-        # note that QR code files are .jpg so they will be ignored here
-        imagesToDisplay = []
-        for file in idleDisplayFiles:
-            if file.endswith(".png"):
-                #add to the list
-                imagesToDisplay.append(file)
-        random.shuffle(imagesToDisplay) # randomize the list
-        display_image(idleDisplayFolder + "/" + imagesToDisplay[0], labelForImageDisplay, labelQRForImage, labelQRForImageText)
-        
+        imagesToDisplay = [
+            f for f in idleDisplayFiles if f.endswith(".png")
+        ]
+        random.shuffle(imagesToDisplay)
+        display_image(
+            idleDisplayFolder + "/" + imagesToDisplay[0],
+            labelForImageDisplay, labelQRForImage, labelQRForImageText,
+        )
         update_main_window()
 
 
@@ -1810,9 +1816,9 @@ def audioToPicture(settings, labelForImageDisplay, labelForMessageDisplay, label
 
             display_text_in_message_window(msg, labelForMessageDisplay)
             # Wait 10 seconds while keeping the GUI responsive so the
-            # window renders properly and withdraw() works correctly.
+            # window renders properly and hide() works correctly.
             for _ in range(100):
-                root.update()
+                QtWidgets.QApplication.processEvents()
                 time.sleep(0.1)
             display_text_in_message_window()  # Hide the message window
             update_main_window()
@@ -2053,7 +2059,7 @@ def main():
             lastCommandTime = time.time()
             randomDisplayMode = False            
 
-        # let the tkinter window events happen
+        # let the Qt window events happen
         update_main_window()
 
         if settings.nextProcessStep in {processStep.UseAudioFile, processStep.UseTranscriptFile, 
