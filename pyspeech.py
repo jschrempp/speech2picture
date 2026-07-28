@@ -56,7 +56,7 @@ Specific to Raspberry Pi:
 
     1. set up a virtual environment and activate it (to deactive use "deactivate")
         cd speech2picture
-        python3 -m venv .venv
+        python3 -m venv --system-site-packages .venv
         source .venv/bin/activate
 
         set your openai key
@@ -80,6 +80,7 @@ Specific to Raspberry Pi:
 
         2a. for RPi version 3 install these
             sudo apt-get install portaudio19-dev
+            sudo apt install python3-pyqt6
             On the 2023-10-10 64 bit Raspbian OS you don't need to install these
             #sudo apt-get install libasound2-dev
             #sudo apt-get install libatlas-base-dev
@@ -113,12 +114,10 @@ Specific to Raspberry Pi:
 
                     
     3. install the following python packages (be sure you are in the virtual environment)   
-        pip install openai 
-        pip install pillow
-        pip install pyaudio
-        pip install RPi.GPIO
-        pip install boto3       needed only if you are going to use teh -q option to store finished images in the AWS S3 cloud
-        pip install qrcode      needed if you are using the -q option and S3 to enable instant downloads via QR code
+        pip install -r requirements.txt
+
+        NOTE: On Raspberry Pi, PyQt6 is installed via apt (step 2a above), not pip.
+        The venv must be created with --system-site-packages (step 1 above) to see it.
 
     Note that when run you will see 10 or so lines of errors about sockets and JACKD and whatnot.
     Don't worry, it is still working. If you know how to fix this, please let me know.
