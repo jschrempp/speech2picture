@@ -13,7 +13,15 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from PIL import Image
-from PyQt6 import uic, QtWidgets, QtCore, QtGui
+try:
+    from PyQt6 import uic, QtWidgets, QtCore, QtGui
+    _uic_available = True
+except ImportError:
+    # On Debian/Raspbian, PyQt6.uic may be in a separate apt package
+    # (pyqt6-dev-tools).  Fall back to QUiLoader.
+    from PyQt6 import QtWidgets, QtCore, QtGui
+    _uic_available = False
+
 from PyQt6.QtWidgets import QMainWindow, QDialog, QLabel, QPushButton
 
 logger = logging.getLogger(__name__)
@@ -26,6 +34,27 @@ _UI_DIR = Path(__file__).resolve().parent
 
 def _ui_path(filename: str) -> str:
     return str(_UI_DIR / filename)
+
+
+def _load_ui_file(filename: str, widget: QtWidgets.QWidget) -> None:
+    """Load a .ui file onto *widget*, using uic if available, else QUiLoader."""
+    if _uic_available:
+        uic.loadUi(_ui_path(filename), widget)
+    else:
+        from PyQt6.QtUiTools import QUiLoader
+        from PyQt6.QtCore import QFile
+
+        ui_file = QFile(_ui_path(filename))
+        ui_file.open(QFile.OpenModeFlag.ReadOnly)
+        loader = QUiLoader()
+        loaded = loader.load(ui_file, widget)
+        ui_file.close()
+        if loaded is None:
+            raise RuntimeError(f"Failed to load UI file: {filename}")
+        # QUiLoader creates a new widget tree; transfer children to *widget*.
+        # For QMainWindow, set the central widget from the loaded widget.
+        if isinstance(widget, QMainWindow):
+            widget.setCentralWidget(loaded.findChild(QtWidgets.QWidget, loaded.metaObject().className()) or loaded)
 
 
 # ---------------------------------------------------------------------------
@@ -74,11 +103,9 @@ class MainWindow(QMainWindow):
 
     def _load_ui(self) -> None:
         """Load the .ui file and bind named widgets."""
-        uic.loadUi(_ui_path("main_window.ui"), self)
+        _load_ui_file("main_window.ui", self)
 
         # The central widget and its grid layout.
-        # Use .centralWidget() (the QMainWindow method) to get the widget,
-        # NOT the named child, to avoid shadowing.
         self._main_grid = self.centralWidget().layout()
 
         # Resolve widgets by objectName
@@ -115,15 +142,12 @@ class MainWindow(QMainWindow):
 
     def _configure_widgets(self) -> None:
         """Wire signals and set custom properties after .ui load."""
-        # Update command hint with version
         hint = self.labelCommandHint.text()
         self.labelCommandHint.setText(f"{hint}  v: {self._version}")
 
-        # Buttons
         self.buttonWindow.clicked.connect(self._on_exit_fullscreen)
         self.buttonQuit.clicked.connect(self._on_quit)
 
-        # QR static image -- load S2PQR.png if available
         qr_path = Path("S2PQR.png")
         if qr_path.exists():
             pix = QtGui.QPixmap(str(qr_path))
@@ -227,7 +251,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Set quit flag; main loop handles actual shutdown."""
-        self.hide()  # Prevent Cocoa from destroying/recreating the window on macOS
+        self.hide()
         from src.config import gw
         gw.isQuitting = True
         event.ignore()
@@ -250,7 +274,7 @@ class MainWindow(QMainWindow):
 
     def _on_quit(self) -> None:
         """Forward quit to display module (sets gw.isQuitting)."""
-        self.hide()  # Prevent Cocoa close-event cascade on macOS
+        self.hide()
         from src.display import quit_button_pressed
         quit_button_pressed()
 
@@ -266,7 +290,7 @@ class _PopupDialog(QDialog):
 
     def __init__(self, ui_filename: str, parent=None):
         super().__init__(parent)
-        uic.loadUi(_ui_path(ui_filename), self)
+        _load_ui_file(ui_filename, self)
         self.setWindowFlags(
             self.windowFlags() | QtCore.Qt.WindowType.WindowStaysOnTopHint
         )
