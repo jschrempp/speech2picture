@@ -73,6 +73,7 @@ System Settings → Privacy & Security → Microphone.
 sudo apt update && sudo apt-get full-upgrade
 sudo apt-get install portaudio19-dev
 sudo apt install python3-pyqt6
+sudo apt install python3-pyqt6 pyqt6-dev-tools qt6-base-dev qt6-tools-dev
 ```
 
 The venv **must** be created with `--system-site-packages` so PyQt6

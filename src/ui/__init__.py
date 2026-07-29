@@ -84,10 +84,24 @@ _ensure_ui_compiled("main_window")
 _ensure_ui_compiled("message_dialog")
 _ensure_ui_compiled("status_dialog")
 
-# Now safe to import the generated modules
-from src.ui.main_window import Ui_MainWindow
-from src.ui.message_dialog import Ui_MessageDialog
-from src.ui.status_dialog import Ui_StatusDialog
+# Now safe to import the generated modules — or fall back to uic.loadUi
+try:
+    from src.ui.main_window import Ui_MainWindow
+    from src.ui.message_dialog import Ui_MessageDialog
+    from src.ui.status_dialog import Ui_StatusDialog
+    _use_generated = True
+except ImportError:
+    # .py files not generated and pyuic6 not available — use uic at runtime
+    try:
+        from PyQt6 import uic  # noqa: F811
+        _use_generated = False
+    except ImportError:
+        raise ImportError(
+            "Cannot load UI files.  Install pyqt6-dev-tools:\n"
+            "    sudo apt install pyqt6-dev-tools\n"
+            "or (pip):\n"
+            "    pip install PyQt6"
+        )
 
 
 # ===================================================================
@@ -130,12 +144,23 @@ class MainWindow(QMainWindow):
         self._configure_geometry()
 
     def _load_ui(self) -> None:
-        """Load the UI from the generated .py file."""
-        self.ui = Ui_MainWindow()
-        self.ui.setupUi(self)
-
-        # The generated code names the grid layout "mainGrid"
-        self._main_grid = self.ui.mainGrid
+        """Load the UI from the generated .py file, or fall back to uic."""
+        if _use_generated:
+            self.ui = Ui_MainWindow()
+            self.ui.setupUi(self)
+            # Copy widget references from self.ui to self so the rest of
+            # the code can access them as self.labelInstructions etc.
+            for attr in dir(self.ui):
+                if not attr.startswith("_"):
+                    obj = getattr(self.ui, attr, None)
+                    if isinstance(obj, QtWidgets.QWidget):
+                        setattr(self, attr, obj)
+            # The generated code names the grid layout "mainGrid"
+            self._main_grid = self.ui.mainGrid
+        else:
+            from PyQt6 import uic
+            uic.loadUi(_ui_path("main_window.ui"), self)
+            self._main_grid = self.centralWidget().layout()
         self._configure_grid()
 
     def _configure_grid(self) -> None:
@@ -291,10 +316,16 @@ def create_message_window(parent=None) -> Tuple[QDialog, QLabel]:
     dlg.setWindowFlags(
         dlg.windowFlags() | QtCore.Qt.WindowType.WindowStaysOnTopHint
     )
-    ui = Ui_MessageDialog()
-    ui.setupUi(dlg)
+    if _use_generated:
+        ui = Ui_MessageDialog()
+        ui.setupUi(dlg)
+        lbl = ui.label
+    else:
+        from PyQt6 import uic
+        uic.loadUi(_ui_path("message_dialog.ui"), dlg)
+        lbl = dlg.findChild(QLabel, "label")
     dlg.hide()
-    return dlg, ui.label
+    return dlg, lbl
 
 
 def create_status_window(parent=None) -> Tuple[QDialog, QLabel]:
@@ -303,10 +334,16 @@ def create_status_window(parent=None) -> Tuple[QDialog, QLabel]:
     dlg.setWindowFlags(
         dlg.windowFlags() | QtCore.Qt.WindowType.WindowStaysOnTopHint
     )
-    ui = Ui_StatusDialog()
-    ui.setupUi(dlg)
+    if _use_generated:
+        ui = Ui_StatusDialog()
+        ui.setupUi(dlg)
+        lbl = ui.label
+    else:
+        from PyQt6 import uic
+        uic.loadUi(_ui_path("status_dialog.ui"), dlg)
+        lbl = dlg.findChild(QLabel, "label")
     dlg.hide()
-    return dlg, ui.label
+    return dlg, lbl
 
 
 # ---------------------------------------------------------------------------
