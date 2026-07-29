@@ -167,30 +167,32 @@ def _load_ui_from_xml(filename: str, target: QtWidgets.QWidget) -> dict[str, Any
                 w_cls = w_el.get("class", "")
                 w_name = w_el.get("name", "")
                 widget = _make_widget(w_cls, w_el)
-                if widget is not None and w_name:
-                    widget.setObjectName(w_name)
-                    widget_map[w_name] = widget
+                if widget is not None:
+                    _apply_properties(widget, w_el)
+                    if w_name:
+                        widget.setObjectName(w_name)
+                        widget_map[w_name] = widget
 
-                # Special properties on QLabel
-                if w_cls == "QLabel" and widget is not None:
-                    for prop in w_el.findall("property"):
-                        pn = prop.get("name", "")
-                        if pn == "text":
-                            t = prop.find("string")
-                            if t is not None and t.text:
-                                widget.setText(t.text)
-                        elif pn == "alignment":
-                            a = prop.find("set")
-                            if a is not None and a.text:
-                                widget.setAlignment(_parse_alignment(a.text))
-                        elif pn == "wordWrap":
-                            b = prop.find("bool")
-                            if b is not None:
-                                widget.setWordWrap(b.text == "true")
-                        elif pn == "fixedWidth":
-                            n = _int_prop(prop)
-                            if n:
-                                widget.setFixedWidth(n)
+                    # Additional QLabel-specific properties
+                    if w_cls == "QLabel":
+                        for prop in w_el.findall("property"):
+                            pn = prop.get("name", "")
+                            if pn == "text":
+                                t = prop.find("string")
+                                if t is not None and t.text:
+                                    widget.setText(t.text)
+                            elif pn == "alignment":
+                                a = prop.find("set")
+                                if a is not None and a.text:
+                                    widget.setAlignment(_parse_alignment(a.text))
+                            elif pn == "wordWrap":
+                                b = prop.find("bool")
+                                if b is not None:
+                                    widget.setWordWrap(b.text == "true")
+                            elif pn == "fixedWidth":
+                                n = _int_prop(prop)
+                                if n:
+                                    widget.setFixedWidth(n)
 
                 if isinstance(layout, QtWidgets.QGridLayout) and widget is not None:
                     row = int(item.get("row", 0))
