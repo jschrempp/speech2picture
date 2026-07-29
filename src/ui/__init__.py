@@ -1,34 +1,23 @@
 """Qt UI Designer integration for Speech2Picture.
 
-On macOS (pip-installed PyQt6), uses ``PyQt6.uic.loadUi``.
-On Debian/Raspbian (apt-installed pyqt6), parses .ui XML directly —
-no extra packages needed, and the .ui files remain the single source of truth.
+Uses pyuic6-generated .py files from the .ui sources.  If a .ui file is
+newer than its .py counterpart, pyuic6 is invoked automatically at startup
+so the .ui files remain the single source of truth.
 """
 
 from __future__ import annotations
 
 import logging
-import xml.etree.ElementTree as ET
+import os
+import subprocess
+import sys
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Optional, Tuple
 
 from PIL import Image
-try:
-    from PyQt6 import uic, QtWidgets, QtCore, QtGui
-    _uic_available = True
-except ImportError:
-    from PyQt6 import QtWidgets, QtCore, QtGui
-    _uic_available = False
-
-from PyQt6.QtWidgets import (
-    QDialog,
-    QFrame,
-    QLabel,
-    QMainWindow,
-    QPushButton,
-    QVBoxLayout,
-)
+from PyQt6 import QtWidgets, QtCore, QtGui
+from PyQt6.QtWidgets import QDialog, QLabel, QMainWindow, QPushButton
 
 logger = logging.getLogger(__name__)
 
@@ -42,282 +31,63 @@ def _ui_path(filename: str) -> str:
     return str(_UI_DIR / filename)
 
 
-# ===================================================================
-# Lightweight .ui XML loader (for platforms without PyQt6.uic)
-# ===================================================================
+# ---------------------------------------------------------------------------
+# Auto-generate .py from .ui if needed
+# ---------------------------------------------------------------------------
 
-def _load_ui_from_xml(filename: str, target: QtWidgets.QWidget) -> dict[str, Any]:
-    """Parse a .ui XML file and build widgets onto *target*.
+def _ensure_ui_compiled(ui_name: str) -> None:
+    """Run pyuic6 if the .ui file is newer than the .py file."""
+    ui_path = _UI_DIR / f"{ui_name}.ui"
+    py_path = _UI_DIR / f"{ui_name}.py"
 
-    Returns a dict of ``{objectName: widget}`` for all named widgets.
-    Supports: QMainWindow, QDialog, QWidget, QGridLayout, QHBoxLayout,
-    QVBoxLayout, QLabel, QPushButton, QFrame, QSpacerItem.
-    """
-    tree = ET.parse(_ui_path(filename))
-    root = tree.getroot()
+    if not ui_path.exists():
+        return  # nothing to compile
 
-    widget_map: dict[str, Any] = {}
-    _ns = ""  # no XML namespace in our .ui files
+    if py_path.exists() and py_path.stat().st_mtime >= ui_path.stat().st_mtime:
+        return  # .py is up to date
 
-    def _apply_properties(w: QtWidgets.QWidget, el: ET.Element) -> None:
-        """Apply common properties from a widget element."""
-        for prop in el.findall("property"):
-            name = prop.get("name", "")
-            if name == "styleSheet":
-                ss = prop.find("string")
-                if ss is not None and ss.text:
-                    w.setStyleSheet(ss.text)
-            elif name == "minimumSize":
-                sz = _parse_size(prop)
-                if sz:
-                    w.setMinimumSize(*sz)
-            elif name == "maximumSize":
-                sz = _parse_size(prop)
-                if sz:
-                    w.setMaximumSize(*sz)
-            elif name == "sizePolicy":
-                h_pol = _enum_prop(prop, "hsizetype", "Expanding")
-                v_pol = _enum_prop(prop, "vsizetype", "Expanding")
-                h_map = {"Fixed": 0, "Minimum": 1, "Maximum": 4, "Preferred": 5,
-                         "Expanding": 7, "MinimumExpanding": 3, "Ignored": 6}
-                w.setSizePolicy(
-                    QtWidgets.QSizePolicy.Policy(h_map.get(h_pol, 7)),
-                    QtWidgets.QSizePolicy.Policy(h_map.get(v_pol, 7)),
-                )
-            elif name == "minimumHeight":
-                h = _int_prop(prop)
-                if h:
-                    w.setMinimumHeight(h)
-
-    def _parse_size(el: ET.Element) -> Optional[Tuple[int, int]]:
-        w_el = el.find("size/width")
-        h_el = el.find("size/height")
-        if w_el is not None and h_el is not None:
-            return (int(w_el.text or 0), int(h_el.text or 0))
-        return None
-
-    def _int_prop(el: ET.Element) -> Optional[int]:
-        for child in el:
-            if child.text:
-                return int(child.text.strip())
-        return None
-
-    def _enum_prop(el: ET.Element, child_name: str, default: str) -> str:
-        c = el.find(child_name)
-        if c is not None and c.text:
-            return c.text
-        return default
-
-    def _build_layout(layout_el: ET.Element, parent_w: Optional[QtWidgets.QWidget] = None):
-        """Recursively build a layout and its children."""
-        cls = layout_el.get("class", "")
-        lay_cls = {
-            "QGridLayout": QtWidgets.QGridLayout,
-            "QHBoxLayout": QtWidgets.QHBoxLayout,
-            "QVBoxLayout": QtWidgets.QVBoxLayout,
-        }.get(cls)
-        if lay_cls is None:
-            return
-
-        layout = lay_cls()
-        for prop in layout_el.findall("property"):
-            name = prop.get("name", "")
-            if name == "spacing":
-                v = _int_prop(prop)
-                if v is not None:
-                    layout.setSpacing(v)
-            elif name in ("leftMargin", "topMargin", "rightMargin", "bottomMargin"):
-                pass  # handled via setContentsMargins below
-
-        # Gather margins
-        margins = {"leftMargin": 0, "topMargin": 0, "rightMargin": 0, "bottomMargin": 0}
-        for prop in layout_el.findall("property"):
-            n = prop.get("name", "")
-            if n in margins:
-                v = _int_prop(prop)
-                if v is not None:
-                    margins[n] = v
-        layout.setContentsMargins(
-            margins["leftMargin"], margins["topMargin"],
-            margins["rightMargin"], margins["bottomMargin"],
-        )
-
-        if parent_w is not None:
-            parent_w.setLayout(layout)
-
-        # Process children
-        for item in layout_el.findall("item"):
-            # Layout-in-layout
-            sub = item.find("layout")
-            if sub is not None:
-                sub_lay = _build_layout(sub)
-                if isinstance(layout, QtWidgets.QGridLayout):
-                    row = int(item.get("row", 0))
-                    col = int(item.get("column", 0))
-                    rs = int(item.get("rowspan", 1))
-                    cs = int(item.get("colspan", 1))
-                    layout.addLayout(sub_lay, row, col, rs, cs)
-                else:
-                    layout.addLayout(sub_lay)
+    # Find pyuic6 — try venv first, then PATH
+    pyuic = None
+    venv_bin = Path(sys.executable).parent / "pyuic6"
+    if venv_bin.exists():
+        pyuic = str(venv_bin)
+    else:
+        # On Debian/Raspbian, pyuic6 may be at /usr/bin/pyuic6
+        for candidate in ("/usr/bin/pyuic6", "pyuic6"):
+            try:
+                subprocess.run([candidate, "--version"],
+                               capture_output=True, timeout=5)
+                pyuic = candidate
+                break
+            except (FileNotFoundError, subprocess.TimeoutExpired):
                 continue
 
-            # Widget
-            w_el = item.find("widget")
-            if w_el is not None:
-                w_cls = w_el.get("class", "")
-                w_name = w_el.get("name", "")
-                widget = _make_widget(w_cls, w_el)
-                if widget is not None:
-                    _apply_properties(widget, w_el)
-                    if w_name:
-                        widget.setObjectName(w_name)
-                        widget_map[w_name] = widget
+    if pyuic is None:
+        logger.warning(
+            "pyuic6 not found — cannot compile %s. "
+            "Install pyqt6-dev-tools (apt) or PyQt6 (pip).", ui_name,
+        )
+        return
 
-                    # Additional QLabel-specific properties
-                    if w_cls == "QLabel":
-                        for prop in w_el.findall("property"):
-                            pn = prop.get("name", "")
-                            if pn == "text":
-                                t = prop.find("string")
-                                if t is not None and t.text:
-                                    widget.setText(t.text)
-                            elif pn == "alignment":
-                                a = prop.find("set")
-                                if a is not None and a.text:
-                                    widget.setAlignment(_parse_alignment(a.text))
-                            elif pn == "wordWrap":
-                                b = prop.find("bool")
-                                if b is not None:
-                                    widget.setWordWrap(b.text == "true")
-                            elif pn == "fixedWidth":
-                                n = _int_prop(prop)
-                                if n:
-                                    widget.setFixedWidth(n)
+    logger.info("Compiling %s.ui → %s.py", ui_name, ui_name)
+    result = subprocess.run(
+        [pyuic, str(ui_path), "-o", str(py_path)],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode != 0:
+        logger.error("pyuic6 failed for %s: %s", ui_name, result.stderr)
+        raise RuntimeError(f"Failed to compile {ui_name}.ui: {result.stderr}")
 
-                if isinstance(layout, QtWidgets.QGridLayout) and widget is not None:
-                    row = int(item.get("row", 0))
-                    col = int(item.get("column", 0))
-                    rs = int(item.get("rowspan", 1))
-                    cs = int(item.get("colspan", 1))
-                    layout.addWidget(widget, row, col, rs, cs)
-                elif widget is not None:
-                    layout.addWidget(widget)
 
-            # Spacer
-            sp_el = item.find("spacer")
-            if sp_el is not None:
-                orient = QtCore.Qt.Orientation.Horizontal
-                for prop in sp_el.findall("property"):
-                    if prop.get("name") == "orientation":
-                        e = prop.find("enum")
-                        if e is not None and e.text:
-                            orient = QtCore.Qt.Orientation.Vertical if "Vertical" in e.text else QtCore.Qt.Orientation.Horizontal
-                spacer = QtWidgets.QSpacerItem(40, 20,
-                    QtWidgets.QSizePolicy.Policy.Expanding if orient == QtCore.Qt.Orientation.Horizontal else QtWidgets.QSizePolicy.Policy.Minimum,
-                    QtWidgets.QSizePolicy.Policy.Minimum if orient == QtCore.Qt.Orientation.Horizontal else QtWidgets.QSizePolicy.Policy.Expanding,
-                )
-                if isinstance(layout, QtWidgets.QGridLayout):
-                    row = int(item.get("row", 0))
-                    col = int(item.get("column", 0))
-                    layout.addItem(spacer, row, col, 1, 1)
-                else:
-                    layout.addItem(spacer)
+# Compile all three .ui files on import
+_ensure_ui_compiled("main_window")
+_ensure_ui_compiled("message_dialog")
+_ensure_ui_compiled("status_dialog")
 
-        return layout
-
-    def _make_widget(cls: str, el: ET.Element) -> Optional[QtWidgets.QWidget]:
-        if cls == "QLabel":
-            return QLabel()
-        elif cls == "QPushButton":
-            btn = QPushButton()
-            for prop in el.findall("property"):
-                if prop.get("name") == "text":
-                    t = prop.find("string")
-                    if t is not None and t.text:
-                        btn.setText(t.text)
-            return btn
-        elif cls == "QFrame":
-            return QFrame()
-        elif cls == "QWidget":
-            return QtWidgets.QWidget()
-        return None
-
-    def _parse_alignment(text: str) -> QtCore.Qt.AlignmentFlag:
-        flags = QtCore.Qt.AlignmentFlag(0)
-        for part in text.split("|"):
-            part = part.strip()
-            m = {
-                "Qt::AlignLeft": QtCore.Qt.AlignmentFlag.AlignLeft,
-                "Qt::AlignRight": QtCore.Qt.AlignmentFlag.AlignRight,
-                "Qt::AlignHCenter": QtCore.Qt.AlignmentFlag.AlignHCenter,
-                "Qt::AlignTop": QtCore.Qt.AlignmentFlag.AlignTop,
-                "Qt::AlignBottom": QtCore.Qt.AlignmentFlag.AlignBottom,
-                "Qt::AlignVCenter": QtCore.Qt.AlignmentFlag.AlignVCenter,
-                "Qt::AlignCenter": QtCore.Qt.AlignmentFlag.AlignCenter,
-            }.get(part)
-            if m is not None:
-                flags |= m
-        return flags
-
-    # -- Top-level widget ----------------------------------------------------
-    ui_class = root.find("widget")
-    if ui_class is None:
-        return widget_map
-
-    w_cls = ui_class.get("class", "")
-
-    # Apply window title
-    for prop in ui_class.findall("property"):
-        if prop.get("name") == "windowTitle":
-            t = prop.find("string")
-            if t is not None and t.text:
-                target.setWindowTitle(t.text)
-        elif prop.get("name") == "styleSheet":
-            ss = prop.find("string")
-            if ss is not None and ss.text:
-                target.setStyleSheet(ss.text)
-
-    # Find the root layout
-    for child in ui_class:
-        if child.tag == "widget":
-            w_cls_inner = child.get("class", "")
-            w_name = child.get("name", "")
-            # This is the central widget / outer widget
-            inner_widget: Optional[QtWidgets.QWidget] = None
-            if w_cls == "QMainWindow":
-                inner_widget = QtWidgets.QWidget(target)
-                target.setCentralWidget(inner_widget)
-            elif w_cls in ("QDialog", ""):
-                inner_widget = target
-
-            if inner_widget is not None:
-                # Apply properties to the inner widget
-                for prop in child.findall("property"):
-                    if prop.get("name") == "styleSheet":
-                        ss = prop.find("string")
-                        if ss is not None and ss.text:
-                            inner_widget.setStyleSheet(ss.text)
-
-            # Find layout inside this widget
-            layout_el = child.find("layout")
-            if layout_el is not None and inner_widget is not None:
-                _build_layout(layout_el, inner_widget)
-
-            # Also scan for widgets directly inside (for non-layout setups)
-            for w_el in child.findall("widget"):
-                w_name2 = w_el.get("name", "")
-                w_cls2 = w_el.get("class", "")
-                w = _make_widget(w_cls2, w_el)
-                if w is not None and w_name2:
-                    w.setObjectName(w_name2)
-                    widget_map[w_name2] = w
-                    _apply_properties(w, w_el)
-
-        elif child.tag == "layout":
-            # Direct layout under root (e.g. QDialog)
-            _build_layout(child, target)
-
-    return widget_map
+# Now safe to import the generated modules
+from src.ui.main_window import Ui_MainWindow
+from src.ui.message_dialog import Ui_MessageDialog
+from src.ui.status_dialog import Ui_StatusDialog
 
 
 # ===================================================================
@@ -327,6 +97,7 @@ def _load_ui_from_xml(filename: str, target: QtWidgets.QWidget) -> dict[str, Any
 class MainWindow(QMainWindow):
     """Main application window loaded from main_window.ui."""
 
+    # These are set by Ui_MainWindow.setupUi()
     labelInstructions: QLabel
     labelForImage: QLabel
     labelQR: QLabel
@@ -359,22 +130,12 @@ class MainWindow(QMainWindow):
         self._configure_geometry()
 
     def _load_ui(self) -> None:
-        if _uic_available:
-            uic.loadUi(_ui_path("main_window.ui"), self)
-        else:
-            widget_map = _load_ui_from_xml("main_window.ui", self)
+        """Load the UI from the generated .py file."""
+        self.ui = Ui_MainWindow()
+        self.ui.setupUi(self)
 
-        # Resolve named widgets (works for both paths)
-        self.labelInstructions = self.findChild(QLabel, "labelInstructions")
-        self.labelForImage = self.findChild(QLabel, "labelForImage")
-        self.labelQR = self.findChild(QLabel, "labelQR")
-        self.labelQRText = self.findChild(QLabel, "labelQRText")
-        self.labelCredits = self.findChild(QLabel, "labelCredits")
-        self.labelCommandHint = self.findChild(QLabel, "labelCommandHint")
-        self.buttonQuit = self.findChild(QPushButton, "buttonQuit")
-        self.buttonWindow = self.findChild(QPushButton, "buttonWindow")
-
-        self._main_grid = self.centralWidget().layout()
+        # The generated code names the grid layout "mainGrid"
+        self._main_grid = self.ui.mainGrid
         self._configure_grid()
 
     def _configure_grid(self) -> None:
@@ -527,43 +288,25 @@ class MainWindow(QMainWindow):
 def create_message_window(parent=None) -> Tuple[QDialog, QLabel]:
     """Create the message popup dialog and its label."""
     dlg = QDialog(parent)
-    dlg.setWindowTitle("Messages")
-    dlg.setMinimumSize(500, 500)
-    dlg.setMaximumSize(500, 500)
     dlg.setWindowFlags(
         dlg.windowFlags() | QtCore.Qt.WindowType.WindowStaysOnTopHint
     )
-
-    if _uic_available:
-        uic.loadUi(_ui_path("message_dialog.ui"), dlg)
-        lbl = dlg.findChild(QLabel, "label")
-    else:
-        widget_map = _load_ui_from_xml("message_dialog.ui", dlg)
-        lbl = widget_map.get("label") or dlg.findChild(QLabel, "label")
-
+    ui = Ui_MessageDialog()
+    ui.setupUi(dlg)
     dlg.hide()
-    return dlg, lbl
+    return dlg, ui.label
 
 
 def create_status_window(parent=None) -> Tuple[QDialog, QLabel]:
     """Create the status popup dialog and its label."""
     dlg = QDialog(parent)
-    dlg.setWindowTitle("Status")
-    dlg.setMinimumSize(800, 600)
-    dlg.setMaximumSize(800, 600)
     dlg.setWindowFlags(
         dlg.windowFlags() | QtCore.Qt.WindowType.WindowStaysOnTopHint
     )
-
-    if _uic_available:
-        uic.loadUi(_ui_path("status_dialog.ui"), dlg)
-        lbl = dlg.findChild(QLabel, "label")
-    else:
-        widget_map = _load_ui_from_xml("status_dialog.ui", dlg)
-        lbl = widget_map.get("label") or dlg.findChild(QLabel, "label")
-
+    ui = Ui_StatusDialog()
+    ui.setupUi(dlg)
     dlg.hide()
-    return dlg, lbl
+    return dlg, ui.label
 
 
 # ---------------------------------------------------------------------------
