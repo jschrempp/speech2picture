@@ -154,6 +154,11 @@ def audio_to_picture(
         display_text_in_message_window(
             "Speak Now\r\nYou have 10 seconds", label_message,
         )
+        # Force the message window to render before blocking on audio I/O.
+        # macOS gets a natural delay from `say`, but RPi needs explicit pump.
+        for _ in range(5):
+            QtWidgets.QApplication.processEvents()
+            time.sleep(0.05)
         sound_file = record_audio(settings.duration)
         display_text_in_message_window(
             "Recording Complete, now analyzing", label_message,
