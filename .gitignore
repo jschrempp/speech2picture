@@ -11,5 +11,9 @@ addToIdleDisplayFiles/*
 local/*
 test files/*
 __pycache__/
+# Generated from .ui files by pyuic6 — do not commit
+src/ui/main_window.py
+src/ui/message_dialog.py
+src/ui/status_dialog.py
 test*
 creepy photo secret key
