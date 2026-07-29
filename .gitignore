@@ -4,3 +4,5 @@ mikes_changes.txt
 s3_info-user.json
 *.vsd
 test.txt
+/history/*
+s2plog.*
