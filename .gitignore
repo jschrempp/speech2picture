@@ -10,6 +10,6 @@ idleDisplayFiles/*
 addToIdleDisplayFiles/*
 local/*
 test files/*
-__pycache__/*
+__pycache__/
 test*
 creepy photo secret key
