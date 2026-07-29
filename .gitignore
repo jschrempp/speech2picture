@@ -8,3 +8,6 @@ history/*
 s2plog.*
 idleDisplayFiles/*
 addToIdleDisplayFiles/*
+local/*
+test files/*
+__pycache__/*
