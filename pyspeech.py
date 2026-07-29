@@ -166,13 +166,19 @@ import string
 import base64
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from io import BytesIO
 from queue import Queue
 from enum import IntEnum
 from PIL import Image, ImageDraw, ImageFont
 from s3_and_qr import upload_to_s3_and_generate_qr
 
-from PyQt6 import QtWidgets, QtCore, QtGui
+from PyQt6 import QtWidgets, QtCore
+from src.ui import (
+    MainWindow,
+    create_message_window,
+    create_status_window,
+    center_popup_over_parent,
+    _pil_to_qpixmap,
+)
 
 import openai
 
@@ -187,7 +193,7 @@ class Config:
     def __init__(self):
         self.isMacOS = False
         self.isRPi = False
-        self.version = "2.0"
+        self.version = "2.1"
         self.useS3 = False
         self.kiosk_mode = False
         self.single_image = False
@@ -1057,328 +1063,25 @@ def generateErrorImage(e, timestr):
     return newFileName
 
 ''' 
-Window functions
+Window functions  (delegated to src.ui; see src/ui/ for .ui designer files)
 '''
 
-def _pil_to_qpixmap(pil_image: Image.Image) -> QtGui.QPixmap:
-    """Convert a PIL Image to a QPixmap."""
-    # Use an encoded image payload instead of a raw pixel buffer so Qt handles
-    # row stride/padding consistently across image modes and platforms.
-    buffer = BytesIO()
-    pil_image.save(buffer, format="PNG")
-    pixmap = QtGui.QPixmap()
-    pixmap.loadFromData(buffer.getvalue(), "PNG")
-    return pixmap
-
-
-class _MainWindow(QtWidgets.QMainWindow):
-    """Main application window for Speech2Picture."""
-
-    def __init__(self, usingHardwareButton: bool):
-        super().__init__()
-        global gw
-
-        self.setWindowTitle("Speech 2 Picture")
-        self.setStyleSheet("background-color: #52837D;")
-
-        # --- Central widget and main layout ---
-        central = QtWidgets.QWidget()
-        self.setCentralWidget(central)
-        self._main_grid = QtWidgets.QGridLayout(central)
-        self._main_grid.setContentsMargins(10, 10, 10, 10)
-        self._main_grid.setSpacing(10)
-
-        # Base column stretch values; image column stretch is recomputed from ratio.
-        self._main_grid.setColumnStretch(0, 1)
-        self._main_grid.setColumnStretch(1, 1)
-        self._main_grid.setColumnStretch(2, 1)
-        self._main_grid.setColumnStretch(3, 1)
-        self._main_grid.setColumnStretch(4, 1)
-        self._main_grid.setColumnStretch(5, 1)
-        self._main_grid.setColumnStretch(6, 14)
-        self._main_grid.setColumnStretch(7, 0)
-        self._main_grid.setColumnMinimumWidth(2, 100)
-        self._main_grid.setColumnMinimumWidth(3, 100)
-
-        # Row stretch: give instructions rows more vertical space
-        self._main_grid.setRowStretch(0, 3)  # instructions top
-        self._main_grid.setRowStretch(1, 3)  # instructions bottom
-        self._main_grid.setRowStretch(2, 1)  # QR
-        self._main_grid.setRowStretch(3, 1)  # credits
-        self._main_grid.setRowStretch(4, 1)  # command hint
-        self._main_grid.setRowStretch(5, 1)  # quit button
-        self._image_pane_ratio = 0.52  # picture display width
-
-        # --- Instructions text ---
-        qr_text = " Scan the QR to download." if gw.useS3 else ""
-        INSTRUCTIONS_TEXT = (
-            '\r\nTRY ME NOW !\r\nAn Interactive Art Exhibit\n\r\n'
-            'When you are ready, press and release the button. '
-            'The light will flash quickly. You will have 10 seconds '
-            'to speak a few words to use to make an AI image. Then wait. '
-            'Images will appear shortly.' + qr_text +
-            '\r\n\nUntil then, enjoy some previous "promptography" images!'
-        )
-        self._labelInstructions = QtWidgets.QLabel(INSTRUCTIONS_TEXT)
-        self._labelInstructions.setAlignment(
-            QtCore.Qt.AlignmentFlag.AlignHCenter | QtCore.Qt.AlignmentFlag.AlignTop
-        )
-        self._labelInstructions.setWordWrap(True)
-        self._labelInstructions.setMinimumHeight(360)
-        self._labelInstructions.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
-            QtWidgets.QSizePolicy.Policy.Expanding,
-        )
-        self._instruction_font_max_px = 48
-        self._instruction_font_min_px = 24
-        self._instruction_font_family = self._pick_instruction_font_family()
-        self._set_instructions_font_size(self._instruction_font_max_px)
-        self._main_grid.addWidget(self._labelInstructions, 0, 0, 2, 6)
-
-        # --- Main image label ---
-        self.labelForImage = QtWidgets.QLabel()
-        self.labelForImage.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.labelForImage.setStyleSheet(
-            "background-color: #000000; border: 10px solid #f4ff55;"
-        )
-        self.labelForImage.setMinimumSize(400, 400)
-        self.labelForImage.setSizePolicy(
-            QtWidgets.QSizePolicy.Policy.Expanding,
-            QtWidgets.QSizePolicy.Policy.Expanding,
-        )
-        self._main_grid.addWidget(self.labelForImage, 0, 6, 6, 1)
-
-        # --- QR code (static) + QR instructions in a horizontal layout ---
-        imgQR = Image.open("S2PQR.png")
-        imgQR = imgQR.resize((150, 150), Image.NEAREST)
-        self._labelQR = QtWidgets.QLabel()
-        self._labelQR.setPixmap(_pil_to_qpixmap(imgQR))
-        self._labelQR.setStyleSheet("background-color: #52837D;")
-        self._labelQR.setFixedWidth(160)
-
-        self._labelQRText = QtWidgets.QLabel(
-            "Scan this QR code for more instructions and tips."
-        )
-        self._labelQRText.setAlignment(
-            QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter
-        )
-        self._labelQRText.setWordWrap(True)
-        self._labelQRText.setStyleSheet(
-            "font: 18px Helvetica; color: #FFFFFF; background-color: #52837D;"
-        )
-
-        self._qr_layout = QtWidgets.QHBoxLayout()
-        self._qr_layout.setSpacing(20)
-        self._qr_layout.addWidget(self._labelQR)
-        self._qr_layout.addWidget(self._labelQRText, 1)
-        self._main_grid.addLayout(self._qr_layout, 2, 0, 1, 6)
-
-        # --- Credits ---
-        self._labelCredits = QtWidgets.QLabel(
-            "Created by Jim Schrempp at Maker Nexus in Sunnyvale, California."
-        )
-        self._labelCredits.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
-        self._labelCredits.setWordWrap(True)
-        self._labelCredits.setStyleSheet(
-            "font: 18px Helvetica; color: #FFFFFF; background-color: #52837D;"
-        )
-        self._main_grid.addWidget(
-            self._labelCredits,
-            3,
-            0,
-            1,
-            6,
-            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
-        )
-
-        # --- Buttons ---
-        button_layout = QtWidgets.QHBoxLayout()
-        button_layout.addStretch()
-
-        self._buttonWindow = QtWidgets.QPushButton("Window")
-        self._buttonWindow.setStyleSheet(
-            "font: 12px Helvetica; background-color: #D3D3D3; color: #000000;"
-        )
-        self._buttonWindow.clicked.connect(exitFullscreenButtonPressed)
-        button_layout.addWidget(self._buttonWindow)
-        button_layout.addSpacing(24)
-
-        self._buttonQuit = QtWidgets.QPushButton("Quit")
-        self._buttonQuit.setStyleSheet(
-            "font: 24px Helvetica; background-color: #D3D3D3; color: #000000;"
-        )
-        self._buttonQuit.clicked.connect(quitButtonPressed)
-
-        # --- Command hint ---
-        self._labelCommandHint = QtWidgets.QLabel(
-            "show commands  v: " + config.version
-        )
-        self._labelCommandHint.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft)
-        self._labelCommandHint.setWordWrap(True)
-        self._labelCommandHint.setStyleSheet(
-            "font: 12px Helvetica; color: #FFFFFF; background-color: #52837D;"
-        )
-        self._main_grid.addWidget(
-            self._labelCommandHint,
-            4,
-            0,
-            1,
-            6,
-            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignTop,
-        )
-
-        # Place Quit in the lower-left area of the main window.
-        self._main_grid.addWidget(
-            self._buttonQuit,
-            5,
-            0,
-            alignment=QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignBottom,
-        )
-
-        self._main_grid.addLayout(button_layout, 5, 2, 1, 2)
-
-        # --- QR for generated image (only if S3 enabled) ---
-        if gw.useS3:
-            # Parent to labelForImage so positioning is always relative to the
-            # image label — no mapToGlobal needed, avoiding layout timing races.
-            self.qrContainer = QtWidgets.QWidget(self.labelForImage)
-            self.qrContainer.setStyleSheet("background-color: #FFFFFF;")
-
-            self.labelQRForImage = QtWidgets.QLabel()
-            self.labelQRForImage.setStyleSheet(
-                "background-color: #000000; border: none;"
-            )
-            self.labelQRForImage.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-
-            self.labelQRForImageText = QtWidgets.QLabel("scan to download image")
-            self.labelQRForImageText.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            self.labelQRForImageText.setStyleSheet(
-                "font: 10px Helvetica; color: #000000; background-color: #FFFFFF;"
-            )
-
-            qr_layout = QtWidgets.QVBoxLayout()
-            qr_layout.setContentsMargins(0, 0, 0, 0)
-            qr_layout.setSpacing(0)
-            qr_layout.addWidget(self.labelQRForImage)
-            qr_layout.addWidget(self.labelQRForImageText)
-            self.qrContainer.setLayout(qr_layout)
-            self.qrContainer.hide()
-        else:
-            self.qrContainer = None
-            self.labelQRForImage = None
-            self.labelQRForImageText = None
-
-        # --- Visibility toggles ---
-        if usingHardwareButton:
-            self._buttonQuit.hide()
-        if not gw.kiosk_mode:
-            self._buttonWindow.hide()
-
-        # --- Kiosk / sizing ---
-        if gw.kiosk_mode:
-            time.sleep(4.0)
-            self.showFullScreen()
-        else:
-            screen = app.primaryScreen().availableGeometry()
-            w = int(screen.width() * 0.95)
-            h = int(screen.height() * 0.95)
-            x = int(screen.width() * 0.025)
-            y = int(screen.height() * 0.025)
-            self.setGeometry(x, y, w, h)
-
-        self._apply_image_pane_width()
-        self._fit_instructions_font()
-        QtCore.QTimer.singleShot(0, self._apply_image_pane_width)
-        QtCore.QTimer.singleShot(0, self._fit_instructions_font)
-
-        gw.windowMain = self
-
-    def _apply_image_pane_width(self):
-        """Apply responsive width and stretch for the image column."""
-        margins = self._main_grid.contentsMargins()
-        available = self.width() - margins.left() - margins.right()
-        ratio = max(0.15, min(0.85, self._image_pane_ratio))
-        target = int(max(0, available) * ratio)
-
-        # Keep a practical floor that still allows ratio changes to be visible.
-        self._main_grid.setColumnMinimumWidth(6, max(400, target))
-
-        # Convert desired width ratio to grid stretch so extra space follows ratio.
-        other_total_stretch = 7  # columns 0-5 and 7 are each stretch 1
-        image_stretch = max(1, int(round((other_total_stretch * ratio) / (1.0 - ratio))))
-        self._main_grid.setColumnStretch(6, image_stretch)
-
-    def _pick_instruction_font_family(self) -> str:
-        """Pick the first available readable font for kiosk instructions."""
-        preferred_fonts = ["Noto Sans", "DejaVu Sans", "Verdana", "Arial", "Helvetica"]
-        available_fonts = set(QtGui.QFontDatabase.families())
-        for font_name in preferred_fonts:
-            if font_name in available_fonts:
-                return font_name
-        return self._labelInstructions.font().family()
-
-    def _set_instructions_font_size(self, size_px: int):
-        """Apply instruction font family and pixel size."""
-        self._labelInstructions.setStyleSheet(
-            f"font-size: {size_px}px; font-weight: 700; font-family: '{self._instruction_font_family}';"
-            " color: #FFFFFF; background-color: #52837D;"
-        )
-
-    def _fit_instructions_font(self):
-        """Reduce instruction font size until full text fits the label bounds."""
-        text = self._labelInstructions.text()
-        if not text:
-            return
-
-        rect = self._labelInstructions.contentsRect()
-        if rect.width() <= 0 or rect.height() <= 0:
-            return
-
-        fit_flags = int(QtCore.Qt.TextFlag.TextWordWrap | QtCore.Qt.TextFlag.TextExpandTabs)
-        best_size = self._instruction_font_min_px
-
-        for size_px in range(self._instruction_font_max_px, self._instruction_font_min_px - 1, -1):
-            font = QtGui.QFont(self._instruction_font_family)
-            font.setPixelSize(size_px)
-            font.setWeight(QtGui.QFont.Weight.Bold)
-
-            metrics = QtGui.QFontMetrics(font)
-            text_rect = metrics.boundingRect(
-                QtCore.QRect(0, 0, rect.width(), 20000),
-                fit_flags,
-                text,
-            )
-
-            if text_rect.height() <= rect.height():
-                best_size = size_px
-                break
-
-        self._set_instructions_font_size(best_size)
-
-    def keyPressEvent(self, event: QtGui.QKeyEvent):
-        """ESC exits fullscreen / quits."""
-        if event.key() == QtCore.Qt.Key.Key_Escape:
-            quitButtonPressed()
-        super().keyPressEvent(event)
-
-    def closeEvent(self, event: QtGui.QCloseEvent):
-        """Window close → quit."""
-        quitButtonPressed()
-        event.ignore()
-
-    def resizeEvent(self, event: QtGui.QResizeEvent):
-        """Keep image pane width proportional as the window changes size."""
-        super().resizeEvent(event)
-        self._apply_image_pane_width()
-        self._fit_instructions_font()
+# Note: _pil_to_qpixmap, MainWindow, create_message_window, create_status_window,
+# and center_popup_over_parent are all imported from src.ui at the top of this file.
 
 
 def create_main_window(usingHardwareButton: bool):
     """Create the main window and return widget references."""
     global gw
-    win = _MainWindow(usingHardwareButton)
+    win = MainWindow(
+        using_hardware_button=usingHardwareButton,
+        version=config.version,
+        use_s3=gw.useS3,
+        kiosk_mode=gw.kiosk_mode,
+    )
     win.show()
     QtWidgets.QApplication.processEvents()
+    gw.windowMain = win
     return win.labelForImage, win.labelQRForImage, win.labelQRForImageText
 
 
@@ -1390,106 +1093,29 @@ def update_main_window():
     QtWidgets.QApplication.processEvents()
 
 
-def exitFullscreenButtonPressed():
-    """Exit fullscreen mode and resize window."""
-    global gw
-    win = gw.windowMain
-    if win is None:
-        return
-    win.showNormal()
-    screen = app.primaryScreen().availableGeometry()
-    w = int(screen.width() * 0.95)
-    h = int(screen.height() * 0.95)
-    x = int(screen.width() * 0.025)
-    y = int(screen.height() * 0.025)
-    win.setGeometry(x, y, w, h)
-
-
 def quitButtonPressed():
-    """Quit the program."""
+    """Set quit flag — main loop exits naturally, same as 'q' command."""
     global gw
     gw.isQuitting = True
-    QtWidgets.QApplication.quit()
-    # Give event loop a moment, then force exit
-    time.sleep(0.1)
-    os._exit(0)
 
 
-class _PopupDialog(QtWidgets.QDialog):
-    """Reusable popup dialog for messages and status."""
-
-    def __init__(self, title: str, width: int, height: int,
-                 font_size: int, alignment, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setMinimumSize(width, height)
-        self.setMaximumSize(width, height)
-        self.setWindowFlags(
-            self.windowFlags() | QtCore.Qt.WindowType.WindowStaysOnTopHint
-        )
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        frame = QtWidgets.QFrame()
-        frame.setStyleSheet(
-            "background-color: #ff0000; border: 2px solid #ffff55;"
-        )
-        frame_layout = QtWidgets.QVBoxLayout(frame)
-        frame_layout.setContentsMargins(5, 5, 5, 5)
-
-        self.label = QtWidgets.QLabel()
-        self.label.setAlignment(alignment)
-        self.label.setWordWrap(True)
-        self.label.setStyleSheet(
-            f"font: {font_size}px Helvetica; color: #000000;"
-            " background-color: #FFFFFF;"
-        )
-        frame_layout.addWidget(self.label)
-
-        layout.addWidget(frame)
-        self.hide()
-
-    def closeEvent(self, event: QtGui.QCloseEvent):
-        """Ignore close — just hide."""
-        self.hide()
-        event.ignore()
-
-
-def create_message_window():
-    """Create the message popup and return its label."""
+def _create_msg_win():
+    """Lazy-create the message popup."""
     global gw
-    dlg = _PopupDialog(
-        "Messages", 500, 500, 28,
-        QtCore.Qt.AlignmentFlag.AlignCenter,
-        parent=gw.windowMain,
-    )
-    gw.windowForMessages = dlg
-    return dlg.label
+    if gw.windowForMessages is None:
+        dlg, lbl = create_message_window(parent=gw.windowMain)
+        gw.windowForMessages = dlg
+        gw.labelForMessage = lbl
+    return gw.windowForMessages, getattr(gw, 'labelForMessage', None)
 
 
-def create_status_window():
-    """Create the status popup and return its label."""
+def _create_sts_win():
+    """Lazy-create the status popup."""
     global gw
-    dlg = _PopupDialog(
-        "Status", 800, 600, 24,
-        QtCore.Qt.AlignmentFlag.AlignLeft,
-        parent=gw.windowMain,
-    )
-    gw.windowForStatus = dlg
-    return dlg.label
-
-
-def _center_popup_over_parent(popup: QtWidgets.QDialog):
-    """Center a popup dialog over its parent window."""
-    parent = popup.parentWidget()
-    if parent is None:
-        return
-    pg = parent.geometry()
-    pw, ph = pg.width(), pg.height()
-    px, py = pg.x(), pg.y()
-    dw, dh = popup.width(), popup.height()
-    popup.move(px + (pw - dw) // 2, py + (ph - dh) // 2)
+    if gw.windowForStatus is None:
+        dlg, lbl = create_status_window(parent=gw.windowMain)
+        gw.windowForStatus = dlg
+    return gw.windowForStatus
 
 
 def display_text_in_status_window(message=None, labelToUse=None):
@@ -1498,24 +1124,16 @@ def display_text_in_status_window(message=None, labelToUse=None):
     if gw.isQuitting:
         return
     try:
-        if gw.windowForStatus is None or not gw.windowForStatus.isVisible():
-            # Recreate if needed
-            if gw.windowForStatus is None:
-                create_status_window()
-            else:
-                pass  # exists but hidden, that's fine
-
+        dlg = _create_sts_win()
         if message is None or labelToUse is None:
-            if gw.windowForStatus is not None:
-                gw.windowForStatus.hide()
+            if dlg is not None:
+                dlg.hide()
         else:
             labelToUse.setText(message)
-            _center_popup_over_parent(gw.windowForStatus)
-            gw.windowForStatus.show()
+            center_popup_over_parent(dlg)
+            dlg.show()
 
         QtWidgets.QApplication.processEvents()
-
-        # Also process message window events
         display_text_in_message_window()
         if gw.windowForMessages is not None and gw.windowForMessages.isVisible():
             QtWidgets.QApplication.processEvents()
@@ -1529,18 +1147,14 @@ def display_text_in_message_window(message=None, labelToUse=None):
     if gw.isQuitting:
         return
     try:
-        if gw.windowForMessages is None or not gw.windowForMessages.isVisible():
-            if gw.windowForMessages is None:
-                create_message_window()
-
+        dlg, _ = _create_msg_win()
         if message is None or labelToUse is None:
-            if gw.windowForMessages is not None:
-                gw.windowForMessages.hide()
+            if dlg is not None:
+                dlg.hide()
         else:
             labelToUse.setText(message)
-            _center_popup_over_parent(gw.windowForMessages)
-            gw.windowForMessages.show()
-
+            center_popup_over_parent(dlg)
+            dlg.show()
         QtWidgets.QApplication.processEvents()
     except Exception:
         pass
@@ -1558,6 +1172,10 @@ def display_image(image_path, label=None, labelQR=None, labelQRText=None):
     if label is None:
         print("Error: label is None")
         return
+
+    new_width = 0
+    new_height = 0
+    skip_QR = False
 
     try:
         img = Image.open(image_path)
@@ -1590,8 +1208,6 @@ def display_image(image_path, label=None, labelQR=None, labelQRText=None):
         new_height = scaled_pixmap.height()
 
         update_main_window()
-        skip_QR = False
-
     except Exception as e:
         print("Error with image file: " + image_path)
         print(e)
@@ -2067,12 +1683,14 @@ def main():
     display_random_history_image(labelForImageDisplay, labelQRForImage, labelQRForImageText) # display a random image
 
     # create the message window
-    labelForMessageDisplay = create_message_window()
+    dlgMsg, labelForMessageDisplay = create_message_window()
+    gw.windowForMessages = dlgMsg
     gw.labelForMessage = labelForMessageDisplay  # store so getImageURL can use it
     display_text_in_message_window() # hide the message window
 
     # create the status window
-    labelForStatusDisplay = create_status_window()
+    dlgSts, labelForStatusDisplay = create_status_window()
+    gw.windowForStatus = dlgSts
     display_text_in_status_window() # hide the status window
 
     # capture a second of audio to initialize driver on RPi
@@ -2200,10 +1818,12 @@ def main():
             settings.duration = 10
 
         # we have a command. Either a command line file argument, a menu command, or a button press
-        if executeImageGeneration:
+        if executeImageGeneration and not gw.isQuitting:
 
             # loop through a number of picture generation cycles
             for i in range(0, settings.numLoops, 1):
+                if gw.isQuitting:
+                    break
                 # this is where all the work happens
                 # collect audio, transcribe, summarize, extract keywords, generate images, display images
                 try:
@@ -2266,6 +1886,9 @@ def main():
 
         # Clean up the GPIO pins
         GPIO.cleanup()
+
+    # Properly shut down Qt before exiting
+    app.quit()
 
     # exit the program
     print("\r\n")

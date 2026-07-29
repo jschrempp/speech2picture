@@ -11,3 +11,4 @@ addToIdleDisplayFiles/*
 local/*
 test files/*
 __pycache__/*
+test*
