@@ -1,176 +1,146 @@
 # speech2picture
+
 Use your voice and OpenAI to make new art. Or, monitor an ongoing conversation
-and have the picture frame change to reflect the conversation - an
-eveasdropping picture frame!
+and have the picture frame change to reflect the conversation — an
+eavesdropping picture frame\!
 
-A video of this project in action: https://www.youtube.com/watch?v=Wzuj7Vhyl8w
+- [Video of this project in action](https://www.youtube.com/watch?v=Wzuj7Vhyl8w)
+- [Full write-up](https://www.jimschrempp.com/features/computer/speech_to_picture.htm)
+- Based on the [WhisperFrame project on Hackaday](https://hackaday.com/2023/09/22/whisperframe-depicts-the-art-of-conversation/)
 
-A full write up: https://www.jimschrempp.com/features/computer/speech_to_picture.htm
+---
 
-Based on the WhisperFrame project idea on Hackaday.  
-https://hackaday.com/2023/09/22/whisperframe-depicts-the-art-of-conversation/
+## How it works
 
-- Python code to record audio from the default microphone and 
-- transcribe it using OpenAI
-- summarize the transcript 
-- generate 4 pictures based on the summary and combine them into one
-- open the picture
-- delay for 60 seconds
-- repeat the process 10 times
+1. Record audio from the default microphone
+2. Transcribe it using OpenAI Whisper
+3. Extract keywords from the transcript
+4. Generate 4 AI images (different styles) and combine them into one
+5. Display the composite image
+6. Optionally, delay 60 seconds and repeat
 
-Runs on Mac OSX and Raspberry Pi. RPi has the option to trigger the process with a button. Includes
-"kiosk" mode so the RPi will boot into a running session, ready for a button press.
+Runs on macOS and Raspberry Pi.  RPi supports a hardware "Go" button and
+kiosk mode (auto-start on boot).
 
-## Installation
+---
 
-### Prerequisites
-- Python 3.8 or higher
-- OpenAI API key (set as environment variable `OPENAI_API_KEY`)
-- For AWS S3 features: AWS account with S3 bucket configured (see [s3_and_qr_readme.txt](s3_and_qr_readme.txt))
+## Quick start
 
-### Setup
+```bash
+git clone https://github.com/jschrempp/speech2picture.git
+cd speech2picture
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python3 pyspeech.py
+```
 
-1. Clone this repository:
-   ```bash
-   git clone https://github.com/jschrempp/speech2picture.git
-   cd speech2picture
-   ```
+**Full setup instructions** (macOS, RPi, S3/QR, autostart): see **[SETUP.md](SETUP.md)**.
 
-2. Create and activate a virtual environment (recommended):
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
+---
 
-3. Install dependencies:
-   
-   **For macOS:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-   
-   **For Raspberry Pi:**
-   ```bash
-   pip install -r requirements.txt
-   ```
-   Note: On Raspberry Pi, you may need to install additional system packages:
-   ```bash
-   sudo apt-get install portaudio19-dev python3-pyaudio
-   ```
-   Also add your user to the audio group:
-   ```bash
-   sudo usermod -a -G audio $USER
-   ```
+## Project structure (v2.1+)
 
-4. Set up your OpenAI API key:
-   ```bash
-   export OPENAI_API_KEY='your-api-key-here'
-   ```
-   Or add it to your shell profile for persistence.
+```
+speech2picture/
+├── pyspeech.py              ← entry point, main loop, pipeline orchestration
+├── requirements.txt
+├── README.md
+├── SETUP.md                 ← detailed platform setup guide
+├── src/
+│   ├── config.py            ← Config, constants, CLI parsing, dependency check
+│   ├── hardware.py          ← RPi GPIO, LED blink thread (no-op on macOS)
+│   ├── audio.py             ← Platform-abstracted audio recording
+│   ├── openai_client.py     ← OpenAI API: transcribe, summarise, keywords, images
+│   ├── images.py            ← Image post-processing, compositing, error images
+│   ├── display.py           ← Qt window management, image display, popups
+│   └── ui/                  ← Qt Designer .ui files + Python loaders
+├── history/                 ← generated images (auto-created)
+├── errors/                  ← error images (auto-created)
+├── idleDisplayFiles/        ← images shown when idle (auto-created)
+└── addToIdleDisplayFiles/   ← drop PNGs here to add to rotation
+```
 
-5. (Optional) For AWS S3 features:
-   - Follow instructions in [s3_and_qr_readme.txt](s3_and_qr_readme.txt)
-   - Create `s3_info-user.json` with your AWS credentials
-
-Author: Jim Schrempp 2023 
+---
 
 ## Usage
 
-To run:  python3 pyspeech.py
+```bash
+python3 pyspeech.py          # interactive terminal menu
+python3 pyspeech.py -o -q     # once, with S3 upload + QR codes
+python3 pyspeech.py -g        # kiosk mode (hardware button)
+python3 pyspeech.py -h        # show all CLI options
+```
 
-- control-c to stop the program or it will end after loopsMax loops about (duration + delay)*loopsMax seconds
-- control-h to see all command line options
+| Flag | Description |
+|------|-------------|
+| `-o` | Audio-only keywords (10 s recording, no extraction) |
+| `-q` | Upload to S3 and display QR codes |
+| `-g` | Kiosk mode (hardware button control) |
+| `-m` | Single large image (DALL·E 3) |
+| `-s` | Save intermediate files (debug) |
+| `-d 1` | Debug: show prompts |
+| `-d 2` | Debug: show prompts + API responses |
+| `-w FILE` | Use audio from file |
+| `-t FILE` | Use transcript from file |
+| `-i FILE` | Use image from file |
 
-## Command Line Options
+---
 
-Useful options:
+## OpenAI API key
 
--d [0,1,2] Level 0 has progress messages. Level 1 lists returns from OpenAI. Level 2 is a trace.
+```bash
+export OPENAI_API_KEY='sk-...'
+```
 
--s Save all the intermediate files in the history/ folder (images are saved in all cases)
+Or create a file named `creepy photo secret key` in the project root.
 
--o Only Keywords ... The audio transcript is passed directly to the image generation service
-   without any interpretation. Useful mostly for 10 second audio recording to let people speak
-   a few words and get a picture from it. 
+---
 
--h Hardware ... Goes into a loop waiting for a button to be pressed (a pin to be pulled low)
+## Important notes
 
--g Goes into Kiosk mode, useful for autostart installations. If the program goes full screen
-   then use ESC to kill it.
+### Image content safety
 
--q Store images in AWS S3 cloud and display QR codes (requires AWS setup)
+New images are saved in `./history/`.  Idle-display images come from
+`./idleDisplayFiles/`.  Periodically review `./history/` and move acceptable
+images into `./idleDisplayFiles/`.
 
-Command line options exist to let you pass in an existing file to one of the steps. For instance, if you want to experiment with how the final image files are displayed, -i <filename> will jump right to that step so you don't have to do all the previous steps.
+**Remote management:**
 
-## Examples
+```bash
+mkdir temp && cd temp
+scp -r <user>@<ip>:~/speech2picture/history .
+# review files, remove questionable ones
+scp -r . <user>@<ip>:~/speech2picture/idleDisplayFiles
+```
 
-Typical execution:
-   ```bash
-   python3 pyspeech.py -o
-   ```
+### Microphone permissions
 
-To run this you need to get an OpenAI API key and set it as an environment variable OPENAI_API_KEY. See Installation section above for details.
+- **macOS**: System Settings → Privacy & Security → Microphone → enable Terminal.
+- **Raspberry Pi**: `sudo usermod -a -G audio $USER`
 
-Kiosk hardware set up:  
-https://github.com/jschrempp/speech2picture/wiki
+---
 
-## Important Notes
+## Version history
 
-### Microphone Permissions
-ALSO NOTE: If you are not getting any audio, then you may not have given the program permission to access your microphone.
+| Version | Changes |
+|---------|---------|
+| 2.2 | Refactored into `src/` modules (config, audio, openai, images, display, hardware) |
+| 2.1 | Bug fixes: quit button, message/status window blank-on-startup |
+| 2.0 | Migrated to gpt-image-1.5; 4 concurrent API calls; style modifiers replace artist names |
+| 1.2 | AWS S3 storage + QR code download |
+| 1.0 | Consolidated Qt GUI into single grid window |
+| 0.5 | Initial release |
 
-- **On macOS**: Go to Settings / Privacy & Security / Microphone and ensure Terminal (or your terminal app) has permission. See: https://superuser.com/questions/1441270/apps-dont-show-up-in-camera-and-microphone-privacy-settings-in-macbook
-- **On Raspberry Pi**: Add your user to the "audio" group:
-  ```bash
-  sudo usermod -a -G audio $USER
-  ```
-
-### Image Content Safety
-### Image Content Safety
-
-NOTE: With the Jan 8, 2024 commit there has been a significant change. We have found that OpenAI can 
-occasionally create offensive images. For that reason we have changed how the idle display of images
-works. Random images are now displayed from the `./idleDisplayFiles` folder. New images are automatically
-saved in the `./history` folder. As a result, new images will not be in the idle display rotation. We 
-suggest that you periodically review the files in the `./history` folder and move acceptable images into
-the `./idleDisplayFiles` folder.
-
-### Managing Images Remotely
-
-We suggest that you periodically look at the new files, remove any offensive ones, and add them to the 
-list of files for idle display. To do this remotely:
-
-1.   mkdir temp
-2.   cd temp
-3.   scp -r <user>@<ip address>:~/speech2picture/history .
-4.   examine the files you just downloaded and remove any you have concerns about
-5.   scp -r . <user>@<ip address>:~/speech2picture/idleDisplayFiles
-
-If you are using the s3 option to store the files with a QR code, then instead 
-copy new files to the folder addToIdleDisplayFiles and then run 
-   python s3_and_qr.py
-to copy the files to AWS s3 and generate QR codes.
+---
 
 ## Cost
-OpenAI currently costs a few pennies to use. Running this for an hour typically costs around $1.00 depending on usage.
+
+OpenAI costs a few pennies per use.  Running for an hour typically costs
+around $1.00.
 
 ## Credits
-Based on the WhisperFrame project idea on Hackaday:  
-https://hackaday.com/2023/09/22/whisperframe-depicts-the-art-of-conversation/
 
-# Update Version 2.0
+Based on the [WhisperFrame project on Hackaday](https://hackaday.com/2023/09/22/whisperframe-depicts-the-art-of-conversation/).
 
-Migrated from Dall-E 3 to chatgpt something something something. No need for a new API key, they just canned the old image generation. This change was pretty easy (using CoPilot). Only big deal at first is that the new images are 1kx1k instead of 512 so that had to be handled.
-
-Then I found that they were lacking the old diversity. The images were a bit different, but basically the same. Booring. So, instead of one API call to get 4 images I now do 4 API calls to get 4 different images and each of the 4 api calls will use a different random modifier. I actually like it better than the original.
-
-One final problem. Using artist names (Hopper, Adams, Van Gogh, etc) tripped the openAI safety system too often. Apparently they didn't like the name being close to a body modifier (A fat green cat as a painting by Hopper) or they felt that the artist was too recent and able to make copyright claims. I changed the modifiers to use "in the style of" and then replaced Ansel Adams with "American Realism" (thanks google for an analysis of each artist's style). It seems to work just as well. 
-
-Lastly, doing 4 API calls took 4 times as long, that was a drag. I had CoPilot rewrite it so all four API calls ran concurrently and added a "working on 1 of 4" to the pop up dialog. 
-
-I think the changes are all ok and it's a bit more fun that the old version.
-
-Jim
-
- 
-
+Author: **Jim Schrempp** 2023–2026

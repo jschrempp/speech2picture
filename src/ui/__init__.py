@@ -228,8 +228,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QtGui.QCloseEvent) -> None:
         """Set quit flag; main loop handles actual shutdown."""
         self.hide()  # Prevent Cocoa from destroying/recreating the window on macOS
-        import __main__ as pyspeech
-        pyspeech.gw.isQuitting = True
+        from src.config import gw
+        gw.isQuitting = True
         event.ignore()
 
     def resizeEvent(self, event: QtGui.QResizeEvent) -> None:
@@ -249,10 +249,10 @@ class MainWindow(QMainWindow):
         self.setGeometry(x, y, w, h)
 
     def _on_quit(self) -> None:
-        """Forward quit to pyspeech's quitButtonPressed (sets gw.isQuitting)."""
+        """Forward quit to display module (sets gw.isQuitting)."""
         self.hide()  # Prevent Cocoa close-event cascade on macOS
-        import __main__ as pyspeech
-        pyspeech.quitButtonPressed()
+        from src.display import quit_button_pressed
+        quit_button_pressed()
 
 
 # ---------------------------------------------------------------------------
