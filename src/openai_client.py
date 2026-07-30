@@ -225,7 +225,8 @@ def generate_images(
             def _submit(p: str = prompt) -> object:
                 return openai.images.generate(
                     prompt=p,
-                    model="gpt-image-1.5",
+                    model="gpt-image-2",
+                    quality="low",  # $0.005  medium is $0.05, high is $0.20
                     n=1,
                     size="1024x1024",
                 )
