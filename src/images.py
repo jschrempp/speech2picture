@@ -32,7 +32,6 @@ def _get_font(size: int = 56) -> ImageFont.FreeTypeFont:
 
 def combine_images(
     image_urls: list[str],
-    image_modifiers: str,
     keywords: str,
     timestr: str,
     file_prefix: str,
@@ -52,7 +51,8 @@ def combine_images(
             with open(file_name, "wb") as f:
                 f.write(base64.b64decode(url_data))
 
-        img_objects.append(Image.open(file_name))
+        with Image.open(file_name) as img:
+            img_objects.append(img.copy())
 
     caption_area_height: int = 140
 

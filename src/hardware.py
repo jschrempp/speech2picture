@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from queue import Queue
+from queue import Empty, Queue
 
 from src.config import (
     BLINK_DIE,
@@ -52,7 +52,7 @@ def setup_hardware() -> None:
         while True:
             try:
                 blink_time = q.get_nowait()
-            except Exception:
+            except queue.Empty:
                 blink_time = None
 
             if blink_time is None:

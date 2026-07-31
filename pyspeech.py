@@ -240,7 +240,7 @@ def audio_to_picture(
             )
 
             new_image_file = combine_images(
-                image_urls, modifiers, keywords, timestr, file_prefix,
+                image_urls, keywords, timestr, file_prefix,
             )
 
             logger.debug("image file: %s", new_image_file)
