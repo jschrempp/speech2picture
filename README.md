@@ -126,7 +126,7 @@ scp -r . <user>@<ip>:~/speech2picture/idleDisplayFiles
 | Version | Changes |
 |---------|---------|
 | 2.2 | Refactored into `src/` modules (config, audio, openai, images, display, hardware) |
-| 2.1 | Bug fixes: quit button, message/status window blank-on-startup |
+| 2.2 | Bug fixes: quit button, message/status window blank-on-startup |
 | 2.0 | Migrated to gpt-image-1.5; 4 concurrent API calls; style modifiers replace artist names |
 | 1.2 | AWS S3 storage + QR code download |
 | 1.0 | Consolidated Qt GUI into single grid window |
