@@ -130,6 +130,8 @@ def audio_to_picture(
         step = ProcessStep.Summarize
 
     if step == ProcessStep.UseSummaryFile:
+        with open(settings.inputFileName, "r") as f:
+            keywords = f.read()
         logger.info("Using summary file: %s", settings.inputFileName)
         step = ProcessStep.ImageCreate
 
