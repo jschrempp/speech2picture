@@ -9,7 +9,7 @@ This repository contains a program to create images from input speach audio usin
 
 # Tech Stack & Dependencies
 - **Language:** Python 3.11+
-- **Architecture:** QT6
+- **Architecture:** PyQt6
 - **Testing:** Pytest, pytest-asyncio
 - **Linter/Formatter:** Ruff (replaces Flake8, Black, and isort)
 
