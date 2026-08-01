@@ -15,15 +15,13 @@ import socket
 import time
 
 from PIL import Image
-from PyQt6 import QtWidgets, QtCore
+from PyQt6 import QtCore, QtWidgets
 
 from src.config import (
-    S3_BUCKET_TO_STORE_IN,
     config,
     gw,
     voice_command_functions,
 )
-from src.hardware import change_blink_rate
 from src.ui import (
     MainWindow,
     _pil_to_qpixmap,
@@ -300,7 +298,6 @@ def show_status(label_for_status: object = None) -> None:
                 if os.path.isfile(fp):
                     png_files.append(fp)
 
-    num_png: int = len(png_files)
     history_msg: str = f"Number of files in history: {history_count}"
     print(history_msg)
 
@@ -309,7 +306,7 @@ def show_status(label_for_status: object = None) -> None:
         existing = [f for f in png_files if os.path.exists(f)]
         if existing:
             oldest = min(existing, key=os.path.getctime)
-            dt = datetime.datetime.fromtimestamp(os.path.getctime(oldest))
+            dt = datetime.datetime.fromtimestamp(os.path.getctime(oldest), tz=datetime.timezone.utc)
             oldest_msg = f"Oldest file in history: {dt:%m-%d-%Y}"
 
     print(oldest_msg)
@@ -320,7 +317,7 @@ def show_status(label_for_status: object = None) -> None:
     except FileNotFoundError:
         pass
 
-    total, _used, free = shutil.disk_usage("/")
+    _total, _used, free = shutil.disk_usage("/")
     free_gb: str = f"{free / (1024 ** 3):.2f} GB"
 
     msg: str = (
