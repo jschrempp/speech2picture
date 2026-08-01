@@ -74,15 +74,15 @@ def _record_macos(duration_sec: float, filename: str) -> None:
 # ---------------------------------------------------------------------------
 
 def _record_rpi(duration_sec: float, filename: str) -> None:
-    import pyaudio
     import wave
     from ctypes import (
-        CDLL,
         CFUNCTYPE,
         c_char_p,
         c_int,
         cdll,
     )
+
+    import pyaudio  # noqa: F821
 
     # Silence ALSA error messages
     ERROR_HANDLER_FUNC = CFUNCTYPE(None, c_char_p, c_int, c_char_p, c_int,
@@ -106,15 +106,14 @@ def _record_rpi(duration_sec: float, filename: str) -> None:
         frames_per_buffer=1024,
     )
 
-    wf = wave.open(filename, "wb")
-    wf.setnchannels(1)
-    wf.setsampwidth(pa.get_sample_size(pyaudio.paInt16))
-    wf.setframerate(44100)
+    with wave.open(filename, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(pa.get_sample_size(pyaudio.paInt16))
+        wf.setframerate(44100)
 
-    try:
-        for _ in range(int(44100 / 1024 * duration_sec)):
-            data = stream.read(1024)
-            wf.writeframes(data)
-    finally:
-        stream.close()
-        wf.close()
+        try:
+            for _ in range(int(44100 / 1024 * duration_sec)):
+                data = stream.read(1024)
+                wf.writeframes(data)
+        finally:
+            stream.close()
