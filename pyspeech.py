@@ -466,7 +466,7 @@ def main() -> None:
             if settings.isUsingHardwareButtons:
                 is_button_pressed: bool = False
 
-                while not is_button_pressed:
+                while not is_button_pressed and not gw.isQuitting:
                     update_main_window()
 
                     if read_button():
