@@ -78,6 +78,7 @@ class GlobalWindowVars:
     windowForMessages: object | None = None
     windowForStatus: object | None = None
     isQuitting: bool = False
+    lastTranscript: str = ""
 
 
 gw = GlobalWindowVars()

@@ -109,7 +109,7 @@ def display_text_in_status_window(
         if gw.windowForMessages is not None and gw.windowForMessages.isVisible():
             QtWidgets.QApplication.processEvents()
     except Exception:
-        pass
+        logger.exception("Error in display_text_in_status_window")
 
 
 def display_text_in_message_window(
@@ -129,10 +129,11 @@ def display_text_in_message_window(
             label_to_use.repaint()  # Force synchronous paint — macOS compositor
             center_popup_over_parent(dlg)             # may defer async updates across processEvents().
             dlg.show()
+        time.sleep(0.05)  # Allow Qt to process events and repaint the label
         QtWidgets.QApplication.processEvents()
-        QtCore.QCoreApplication.processEvents()
+        QtCore.QCoreApplication.processEvents() # needed for macOS to force repaint of the label
     except Exception:
-        pass
+        logger.exception("Error in display_text_in_message_window")
 
 
 # ---------------------------------------------------------------------------

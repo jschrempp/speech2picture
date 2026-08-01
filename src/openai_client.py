@@ -181,7 +181,7 @@ def generate_images(
     modifier_used = ", ".join(m for m in modifiers_to_use if m)
 
     # Initial progress
-    last_transcript: str = getattr(gw, "lastTranscript", "")
+    last_transcript: str = gw.lastTranscript
     if progress_callback:
         msg: str
         if last_transcript:

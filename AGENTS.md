@@ -5,10 +5,11 @@ applyTo: '**/*.py'
 ---
 
 # Project Overview
-This repository contains a program to create images from input speach audio using AI. It typically runs on a Raspberry Pi in kiosk mode. It is used by the general public without any training. Copilot must prioritize stability, easy to understand GUI, clean modular architectures, and explicit type checking.
+This repository contains a program to create images from input speach audio using AI. It typically runs on a Raspberry Pi in kiosk mode. It is used by the general public without any training. Copilot must prioritize stability, easy to understand GUI, clean modular architectures, and explicit type checking. The RPi will never run headless.
 
 # Tech Stack & Dependencies
 - **Language:** Python 3.11+
+- **Architecture:** QT6
 - **Testing:** Pytest, pytest-asyncio
 - **Linter/Formatter:** Ruff (replaces Flake8, Black, and isort)
 
