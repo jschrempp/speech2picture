@@ -148,7 +148,7 @@ Until then, enjoy some previous "promptography" images!</string>
     <item row="4" column="0" colspan="6">
      <widget class="QLabel" name="labelCommandHint">
       <property name="text">
-       <string>show commands  v: </string>
+       <string>show commands  </string>
       </property>
       <property name="alignment">
        <set>Qt::AlignLeft|Qt::AlignTop</set>
