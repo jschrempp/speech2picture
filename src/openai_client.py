@@ -10,8 +10,8 @@ from __future__ import annotations
 import logging
 import random
 import re
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Callable, Tuple
 
 import openai
 
@@ -96,7 +96,7 @@ def extract_abstract(text: str) -> str:
     bad_phrases: list[str] = [
         "the concept of",
         "in the supplied text is",
-        "the most interesting concept" "in the text is",
+        "the most interesting concept in the text is",
     ]
     for phrase in bad_phrases:
         abstract = re.sub(re.escape(phrase), " ", abstract, flags=re.IGNORECASE)
@@ -120,7 +120,7 @@ def generate_images(
     single_image: bool = False,
     progress_callback: ProgressCallback = None,
     progress_label: object = None,
-) -> Tuple[list[str], str]:
+) -> tuple[list[str], str]:
     """Generate images via OpenAI and return (urls_or_b64_list, modifier_str).
 
     ``phrase`` is used as the image prompt.  ``single_image`` switches to
