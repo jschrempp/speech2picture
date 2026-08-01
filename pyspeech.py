@@ -26,12 +26,12 @@ from PyQt6 import QtWidgets
 
 from src.audio import record_audio
 from src.config import (
-    BLINK_FOR_AUDIO_CAPTURE,
-    BLINK_STOP,
     BLINK1,
     BLINK3,
     BLINK4,
+    BLINK_FOR_AUDIO_CAPTURE,
     BLINK_SLOW,
+    BLINK_STOP,
     LOOPS_MAX,
     ProcessStep,
     check_dependencies,
@@ -47,7 +47,6 @@ from src.display import (
     display_random_history_image,
     display_text_in_message_window,
     display_text_in_status_window,
-    quit_button_pressed,
     update_main_window,
 )
 from src.hardware import (
