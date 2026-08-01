@@ -50,7 +50,7 @@ class Config:
     def __init__(self) -> None:
         self.isMacOS: bool = False
         self.isRPi: bool = False
-        self.version: str = "2.1"
+        self.version: str = "2.2"
         self.useS3: bool = False
         self.kiosk_mode: bool = False
         self.single_image: bool = False
