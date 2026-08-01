@@ -179,7 +179,7 @@ def display_image(
         label.setPixmap(scaled_pixmap)
 
         update_main_window()
-    except Exception as exc:
+    except OSError as exc:
         logger.error("Error with image file: %s", image_path)
         logger.error(str(exc))
         skip_qr = True
@@ -281,7 +281,7 @@ def show_status(label_for_status: object = None) -> None:
     if not ip_addr:
         try:
             ip_addr = os.popen("hostname -I").read().strip().split(" ")[0]
-        except Exception:
+        except OSError:
             ip_addr = ""
 
     ip_msg: str = f"IP Address: {ip_addr}" if ip_addr else "IP Address: unavailable"
