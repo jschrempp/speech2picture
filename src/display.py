@@ -231,23 +231,34 @@ def display_random_history_image(
     """Display a random image from ``idleDisplayFiles/``, throttled to 15 s."""
     if not hasattr(display_random_history_image, "last_time"):
         display_random_history_image.last_time = 0.0  # type: ignore[attr-defined]
+    if not hasattr(display_random_history_image, "idle_files"):
+        display_random_history_image.idle_files: list[str] = []  # type: ignore[attr-defined]
 
     if time.time() - display_random_history_image.last_time > 15:  # type: ignore[attr-defined]
         display_random_history_image.last_time = time.time()  # type: ignore[attr-defined]
 
         idle_folder: str = "./idleDisplayFiles"
-        try:
-            idle_files = os.listdir(idle_folder)
-        except FileNotFoundError:
-            return
 
-        png_files: list[str] = [f for f in idle_files if f.endswith(".png")]
-        if not png_files:
-            return
+        # Refill the list when exhausted
+        if not display_random_history_image.idle_files:  # type: ignore[attr-defined]
+            logger.debug("Refilling idle files list from %s", idle_folder)
+            try:
+                all_files = os.listdir(idle_folder)
+            except FileNotFoundError:
+                logger.warning("Idle folder not found: %s", idle_folder)    
+                return
+            display_random_history_image.idle_files = [  # type: ignore[attr-defined]
+                f for f in all_files if f.endswith(".png")
+            ]
+            if not display_random_history_image.idle_files:  # type: ignore[attr-defined]
+                logger.warning("No PNG files found in %s", idle_folder) 
+                return
+            random.shuffle(display_random_history_image.idle_files)  # type: ignore[attr-defined]
 
-        random.shuffle(png_files)
+        # Pop the next image so it won't repeat until the list is exhausted
+        next_file = display_random_history_image.idle_files.pop(0)  # type: ignore[attr-defined]
         display_image(
-            f"{idle_folder}/{png_files[0]}",
+            f"{idle_folder}/{next_file}",
             label_for_image, label_qr, label_qr_text,
         )
 
