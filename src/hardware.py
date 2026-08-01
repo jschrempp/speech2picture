@@ -52,7 +52,7 @@ def setup_hardware() -> None:
         while True:
             try:
                 blink_time = q.get_nowait()
-            except queue.Empty:
+            except Empty:
                 blink_time = None
 
             if blink_time is None:
