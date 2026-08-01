@@ -233,7 +233,7 @@ def audio_to_picture(
         change_blink_rate(BLINK4)
 
         try:
-            image_urls, modifiers = generate_images(
+            image_urls, _modifiers = generate_images(
                 keywords,
                 single_image=gw.single_image,
                 progress_callback=display_text_in_message_window,
