@@ -241,6 +241,10 @@ def audio_to_picture(
                 progress_label=getattr(gw, "labelForMessage", None),
             )
 
+            display_text_in_message_window(
+                "Image generation complete, now combining", label_message,
+            )
+
             new_image_file = combine_images(
                 image_urls, keywords, timestr, file_prefix,
             )
@@ -249,6 +253,9 @@ def audio_to_picture(
             logToFile.info("Image file: %s", new_image_file)
 
             if gw.useS3:
+                display_text_in_message_window(
+                                "Uploading to S3...", label_message,
+                            )
                 from s3_and_qr import upload_to_s3_and_generate_qr
                 upload_to_s3_and_generate_qr(
                     file_path=new_image_file, S3_dir="idleDisplayFiles",

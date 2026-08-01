@@ -8,8 +8,8 @@ All functions accept simple in/out types and do NOT touch the GUI directly
 from __future__ import annotations
 
 import logging
-import re
 import random
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Callable, Tuple
 
@@ -185,12 +185,7 @@ def generate_images(
     if progress_callback:
         msg: str
         if last_transcript:
-            msg = (
-                f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
-                f"Creating images... (0 of {num_images})"
-            )
-        else:
-            msg = f"Creating images... (0 of {num_images})"
+            msg =f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
         progress_callback(msg, progress_label)
 
     # Build prompts
@@ -209,6 +204,7 @@ def generate_images(
                 f"'{phrase}'"
             )
         prompts_and_indices.append((i, prompt))
+        
 
     image_urls: list[str | None] = [None] * num_images
     completed_count: int = 0
@@ -235,15 +231,16 @@ def generate_images(
             future_to_index[future] = idx
             requested_count += 1
 
-            if progress_callback:
-                if last_transcript:
-                    msg = (
-                        f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
-                        f"requested {requested_count} of {num_images}"
-                    )
-                else:
-                    msg = f"requested {requested_count} of {num_images}"
-                progress_callback(msg, progress_label)
+        # Alert the user that requests have been submitted and we're waiting for results
+        if progress_callback:
+            if last_transcript:
+                msg = (
+                    f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
+                    f"Requested {requested_count} of {num_images} images"
+                )
+            else:
+                msg = f"Requested {requested_count} of {num_images} images"
+            progress_callback(msg, progress_label)
 
         for future in as_completed(future_to_index):
             idx = future_to_index[future]
@@ -260,10 +257,10 @@ def generate_images(
                 if last_transcript:
                     msg = (
                         f'I heard you say:\n\r "{last_transcript}"\n\r\n\r'
-                        f"Creating images... {completed_count} of {num_images}"
+                        f"Receiving images... {completed_count} of {num_images}"
                     )
                 else:
-                    msg = f"Creating images... {completed_count} of {num_images}"
+                    msg = f"Receiving images... {completed_count} of {num_images}"
                 progress_callback(msg, progress_label)
 
     loggerTrace.debug("responseImage count: %d", len(image_urls))
