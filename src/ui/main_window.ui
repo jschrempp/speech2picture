@@ -174,6 +174,18 @@ Until then, enjoy some previous "promptography" images!</string>
      </widget>
     </item>
 
+    <!-- Go button: row 5, col 1 (macOS only, hidden on RPi) -->
+    <item row="5" column="1">
+     <widget class="QPushButton" name="buttonGo">
+      <property name="text">
+       <string>Go</string>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">font: 24px Helvetica; background-color: #D3D3D3; color: #000000;</string>
+      </property>
+     </widget>
+    </item>
+
     <!-- Window + Quit button layout: row 5, cols 2-4 -->
     <item row="5" column="2" colspan="2">
      <layout class="QHBoxLayout" name="buttonLayout">

@@ -119,6 +119,7 @@ class MainWindow(QMainWindow):
     labelCredits: QLabel
     labelCommandHint: QLabel
     buttonQuit: QPushButton
+    buttonGo: QPushButton
     buttonWindow: QPushButton
 
     qrContainer: Optional[QtWidgets.QWidget] = None
@@ -184,6 +185,7 @@ class MainWindow(QMainWindow):
         self.labelCommandHint.setText(f"{hint}  v: {self._version}")
         self.buttonWindow.clicked.connect(self._on_exit_fullscreen)
         self.buttonQuit.clicked.connect(self._on_quit)
+        self.buttonGo.clicked.connect(self._on_go)
 
         qr_path = Path("S2PQR.png")
         if qr_path.exists():
@@ -216,6 +218,9 @@ class MainWindow(QMainWindow):
             self.buttonQuit.hide()
         if not self._kiosk_mode:
             self.buttonWindow.hide()
+        from src.config import config
+        if not config.isMacOS:
+            self.buttonGo.hide()
 
     def _configure_geometry(self) -> None:
         if self._kiosk_mode:
@@ -304,6 +309,10 @@ class MainWindow(QMainWindow):
         self.hide()
         from src.display import quit_button_pressed
         quit_button_pressed()
+
+    def _on_go(self) -> None:
+        from src.config import gw
+        gw.goTriggered = True
 
 
 # ===================================================================

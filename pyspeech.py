@@ -410,7 +410,7 @@ def main() -> None:
                 print("   q: Quit")
 
                 input_command: str = ""
-                while input_command == "" and not gw.isQuitting:
+                while input_command == "" and not gw.isQuitting and not gw.goTriggered:
                     if select.select([sys.stdin], [], [], 0)[0]:
                         while sys.stdin in select.select(
                             [sys.stdin], [], [], 0,
@@ -460,6 +460,15 @@ def main() -> None:
                         )
 
                     update_main_window()
+
+            # ---- Go button pressed (macOS) ---------------------------------
+            if gw.goTriggered:
+                gw.goTriggered = False
+                last_command_time = time.time()
+                random_display_mode = False
+                settings.nextProcessStep = ProcessStep.CaptureAudio
+                settings.numLoops = 1
+                settings.autoLoopDelay = 0
 
             # ---- Hardware button mode (RPi) --------------------------------
             if settings.isUsingHardwareButtons:
