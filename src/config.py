@@ -120,9 +120,11 @@ IMAGE_MODIFIERS: list[str] = [
     "as a sketch in the style of surrealism",
     "as a vivid color painting in the style of impressionism",
     "as a painting in the style of the French Breakthrough",
-    "as a painting in the style of Nuclear Mysticism",
+    "as a painting in the style of Surreal mathematical art, paradox art, impossible architecture, op-art", # escher, MC Escher, Salvador Dali, Rene Magritte
     "in the style of mathematical graphic art",
-    "in the style of the Dutch Golden Age",
+    "in the style of the Dutch Golden Age, Baroque painting using intense chiaroscuro, psychological realism, Dominated by rich earthy tones",
+    "in the style of the Italian Renaissance using chiaroscuro, sfumato, dramatic lighting, realistic anatomy, rich color palette",
+    "in the style of the German Expressionist movement,
     "as a photograph in the style of purist landscape photography",
     "as a painting in the style of American Realism",
     "as a painting in the style of exaggerated realism",
@@ -132,6 +134,12 @@ IMAGE_MODIFIERS: list[str] = [
     "in the style of impressionism",
     "in the style of Art Nouveau",
     "as a watercolor",
+    "as a stained glass window",
+    "as a pencil sketch",
+    "emphasizing material transparency, natural geometry, and intricate shadows", # ruth asawa
+    "with SAMO graffiti aesthetic, primitive abstraction, and poetic symbolism", # jean-michel basquiat
+    "Biomorphic Surrealism, organic abstraction, Catalan modernist avant-garde", # joan miró
+
 ]
 
 # Allow user override via ARTISTS_USER.txt
