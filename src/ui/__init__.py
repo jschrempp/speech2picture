@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         for col in range(8):
             self._main_grid.setColumnStretch(
                 col, 1 if col < 6 else (14 if col == 6 else 0))
-        for row, stretch in ((0, 3), (1, 3), (2, 1), (3, 1), (4, 1), (5, 1)):
+        for row, stretch in ((0, 2), (1, 1), (2, 1), (3, 0), (4, 0), (5, 0)):
             self._main_grid.setRowStretch(row, stretch)
         self._main_grid.setColumnMinimumWidth(2, 100)
         self._main_grid.setColumnMinimumWidth(3, 100)
