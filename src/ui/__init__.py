@@ -165,13 +165,10 @@ class MainWindow(QMainWindow):
         self._configure_grid()
 
     def _configure_grid(self) -> None:
-        for col in range(8):
-            self._main_grid.setColumnStretch(
-                col, 1 if col < 6 else (14 if col == 6 else 0))
+        self._main_grid.setColumnStretch(0, 1)
+        self._main_grid.setColumnStretch(1, 14)
         for row, stretch in ((0, 2), (1, 1), (2, 1), (3, 0), (4, 0), (5, 0)):
             self._main_grid.setRowStretch(row, stretch)
-        self._main_grid.setColumnMinimumWidth(2, 100)
-        self._main_grid.setColumnMinimumWidth(3, 100)
 
         preferred = ["Noto Sans", "DejaVu Sans", "Verdana", "Arial", "Helvetica"]
         available = set(QtGui.QFontDatabase.families())
@@ -245,10 +242,9 @@ class MainWindow(QMainWindow):
         available = self.width() - margins.left() - margins.right()
         ratio = max(0.15, min(0.85, self._image_pane_ratio))
         target = int(max(0, available) * ratio)
-        self._main_grid.setColumnMinimumWidth(6, max(400, target))
-        other_total_stretch = 7
-        image_stretch = max(1, int(round((other_total_stretch * ratio) / (1.0 - ratio))))
-        self._main_grid.setColumnStretch(6, image_stretch)
+        self._main_grid.setColumnMinimumWidth(1, max(400, target))
+        image_stretch = max(1, int(round((ratio) / (1.0 - ratio))))
+        self._main_grid.setColumnStretch(1, image_stretch)
 
     def _set_instructions_font_size(self, size_px: int) -> None:
         self.labelInstructions.setStyleSheet(
