@@ -188,6 +188,16 @@ more instructions and tips.</string>
        </widget>
       </item>
       <item>
+       <widget class="QPushButton" name="buttonBrowseImages">
+        <property name="styleSheet">
+         <string notr="true">font: 24px Helvetica; background-color: #D3D3D3; color: #000000;</string>
+        </property>
+        <property name="text">
+         <string>Browse Images</string>
+        </property>
+       </widget>
+      </item>
+      <item>
        <spacer name="buttonSpacer">
         <property name="orientation">
          <enum>Qt::Orientation::Horizontal</enum>

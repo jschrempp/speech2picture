@@ -79,16 +79,18 @@ def _ensure_ui_compiled(ui_name: str) -> None:
         raise RuntimeError(f"Failed to compile {ui_name}.ui: {result.stderr}")
 
 
-# Compile all three .ui files on import
+# Compile all four .ui files on import
 _ensure_ui_compiled("main_window")
 _ensure_ui_compiled("message_dialog")
 _ensure_ui_compiled("status_dialog")
+_ensure_ui_compiled("image_browser")
 
 # Now safe to import the generated modules — or fall back to uic.loadUi
 try:
     from src.ui.main_window import Ui_MainWindow
     from src.ui.message_dialog import Ui_MessageDialog
     from src.ui.status_dialog import Ui_StatusDialog
+    from src.ui.image_browser import Ui_ImageBrowserDialog
     _use_generated = True
 except ImportError:
     # .py files not generated and pyuic6 not available — use uic at runtime
@@ -120,6 +122,7 @@ class MainWindow(QMainWindow):
     labelCommandHint: QLabel
     buttonQuit: QPushButton
     buttonGo: QPushButton
+    buttonBrowseImages: QPushButton
     buttonWindow: QPushButton
 
     qrContainer: Optional[QtWidgets.QWidget] = None
@@ -183,6 +186,7 @@ class MainWindow(QMainWindow):
         self.buttonWindow.clicked.connect(self._on_exit_fullscreen)
         self.buttonQuit.clicked.connect(self._on_quit)
         self.buttonGo.clicked.connect(self._on_go)
+        self.buttonBrowseImages.clicked.connect(self._on_browse_images)
 
         qr_path = Path("S2PQR.png")
         if qr_path.exists():
@@ -309,6 +313,11 @@ class MainWindow(QMainWindow):
     def _on_go(self) -> None:
         from src.config import gw
         gw.goTriggered = True
+
+    def _on_browse_images(self) -> None:
+        from src.image_browser import ImageBrowser
+        browser = ImageBrowser(self)
+        browser.exec()
 
 
 # ===================================================================

@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ImageBrowserDialog</class>
+ <widget class="QDialog" name="ImageBrowserDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1300</width>
+    <height>750</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Image Browser — Speech2Picture</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">background-color: #3a3a3a; color: #FFFFFF;</string>
+  </property>
+  <layout class="QVBoxLayout" name="rootLayout">
+   <property name="leftMargin">
+    <number>12</number>
+   </property>
+   <property name="topMargin">
+    <number>12</number>
+   </property>
+   <property name="rightMargin">
+    <number>12</number>
+   </property>
+   <property name="bottomMargin">
+    <number>12</number>
+   </property>
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <!-- Top bar: folder selector + counts + close -->
+   <item>
+    <layout class="QHBoxLayout" name="topBar">
+     <property name="spacing">
+      <number>12</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="labelFolderPrompt">
+       <property name="text">
+        <string>Folder:</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font: 16px Helvetica; color: #FFFFFF; background: transparent;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="folderCombo">
+       <property name="styleSheet">
+        <string notr="true">font: 16px Helvetica; padding: 4px 8px; background-color: #555; color: #FFF;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="topSpacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="countLabel">
+       <property name="text">
+        <string/>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font: 14px Helvetica; color: #CCC; background: transparent;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="topSpacer2">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="closeButton">
+       <property name="text">
+        <string>✕ Close</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font: 14px Helvetica; background-color: #666; color: #FFF; padding: 6px 16px; border-radius: 4px;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <!-- Split: thumbnails (left) | preview (right) -->
+   <item>
+    <layout class="QHBoxLayout" name="splitLayout">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <item>
+      <widget class="QScrollArea" name="thumbnailScroll">
+       <property name="minimumSize">
+        <size>
+         <width>400</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="widgetResizable">
+        <bool>true</bool>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QScrollArea { border: 1px solid #555; background-color: #2a2a2a; }</string>
+       </property>
+       <widget class="QWidget" name="gridContainer">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>0</y>
+          <width>400</width>
+          <height>400</height>
+         </rect>
+        </property>
+       </widget>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="previewLabel">
+       <property name="minimumSize">
+        <size>
+         <width>400</width>
+         <height>400</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: #222; border: 2px solid #f4ff55;</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignmentFlag::AlignCenter</set>
+       </property>
+       <property name="scaledContents">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <!-- Bottom: pagination -->
+   <item>
+    <layout class="QHBoxLayout" name="bottomBar">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="pageLabel">
+       <property name="text">
+        <string/>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font: 14px Helvetica; color: #FFFFFF; background: transparent;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="bottomSpacer">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QLabel" name="perPageLabel">
+       <property name="text">
+        <string>Per page:</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font: 14px Helvetica; color: #FFFFFF; background: transparent;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QComboBox" name="perPageCombo">
+       <property name="styleSheet">
+        <string notr="true">font: 14px Helvetica; padding: 2px 6px; background-color: #555; color: #FFF;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="prevButton">
+       <property name="text">
+        <string>◀ Prev</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font: 14px Helvetica; background-color: #555; color: #FFF; padding: 6px 16px; border-radius: 4px;</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="nextButton">
+       <property name="text">
+        <string>Next ▶</string>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">font: 14px Helvetica; background-color: #555; color: #FFF; padding: 6px 16px; border-radius: 4px;</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
