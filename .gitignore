@@ -17,3 +17,4 @@ src/ui/message_dialog.py
 src/ui/status_dialog.py
 test*
 creepy photo secret key
+src/ui/image_browser.py
