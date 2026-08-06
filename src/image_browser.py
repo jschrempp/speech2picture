@@ -92,6 +92,7 @@ class _ThumbnailLabel(QLabel):
         super().__init__(parent)
         self._image_path: str = image_path
         self._loaded: bool = False
+        self._selected: bool = False
         self.setFixedSize(THUMBNAIL_SIZE + 4, THUMBNAIL_SIZE + 4)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -104,6 +105,19 @@ class _ThumbnailLabel(QLabel):
     @property
     def image_path(self) -> str:
         return self._image_path
+
+    def set_selected(self, selected: bool) -> None:
+        """Highlight (red border) or un-highlight this thumbnail."""
+        self._selected = selected
+        if selected:
+            self.setStyleSheet("border: 3px solid #FF3333; background-color: #222;")
+        elif self._loaded:
+            self.setStyleSheet("border: 2px solid #555; background-color: #222;")
+        else:
+            self.setStyleSheet(
+                "border: 2px solid #555; background-color: #222; color: #888;"
+                "font: 24px Helvetica;"
+            )
 
     def load(self) -> None:
         """Load the thumbnail image from disk and scale to 150px."""
@@ -118,9 +132,11 @@ class _ThumbnailLabel(QLabel):
                 Qt.TransformationMode.SmoothTransformation,
             )
             self.setPixmap(thumb)
-            self.setStyleSheet(
-                "border: 2px solid #555; background-color: #222;"
-            )
+            # Preserve selection state
+            if self._selected:
+                self.setStyleSheet("border: 3px solid #FF3333; background-color: #222;")
+            else:
+                self.setStyleSheet("border: 2px solid #555; background-color: #222;")
         except Exception:
             logger.exception("Failed to load thumbnail: %s", self._image_path)
             self.setText("⚠")
@@ -152,6 +168,7 @@ class ImageBrowser(QDialog):
     gridContainer: QWidget
     previewLabel: QLabel
     pageLabel: QLabel
+    fileNameLabel: QLabel
     perPageCombo: QtWidgets.QComboBox
     prevButton: QtWidgets.QPushButton
     nextButton: QtWidgets.QPushButton
@@ -163,6 +180,7 @@ class ImageBrowser(QDialog):
         self._per_page: int = 50
         self._images: list[str] = []
         self._preview_pixmap: QtGui.QPixmap | None = None
+        self._selected_thumb: _ThumbnailLabel | None = None
 
         self._load_ui()
         self._load_folder()
@@ -178,7 +196,7 @@ class ImageBrowser(QDialog):
             for attr in dir(ui):
                 if not attr.startswith("_"):
                     obj = getattr(ui, attr, None)
-                    if isinstance(obj, (QtWidgets.QWidget, QtWidgets.QLayout)):
+                    if isinstance(obj, (QtWidgets.QWidget, QtWidgets.QLayout, QtWidgets.QLabel)):
                         setattr(self, attr, obj)
         else:
             from PyQt6 import uic
@@ -191,7 +209,7 @@ class ImageBrowser(QDialog):
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
 
         # Wire signals
-        self.closeButton.clicked.connect(self.close)
+        self.closeButton.clicked.connect(self.hide)
         self.folderCombo.addItems(list(FOLDERS.keys()))
         self.folderCombo.currentTextChanged.connect(self._on_folder_changed)
         self.perPageCombo.addItems(["10", "50", "100"])
@@ -233,8 +251,7 @@ class ImageBrowser(QDialog):
         self.prevButton.setEnabled(self._current_page > 0)
         self.nextButton.setEnabled(self._current_page < total_pages - 1)
 
-        viewport_w = self.thumbnailScroll.viewport().width() if self.thumbnailScroll.viewport() else (4 * (THUMBNAIL_SIZE + 10) + 20)
-        cols = max(4, (viewport_w - 16) // (THUMBNAIL_SIZE + 10))
+        cols = 4
 
         self._pending_thumbs: list[_ThumbnailLabel] = []
         for i in range(start, end):
@@ -248,6 +265,9 @@ class ImageBrowser(QDialog):
 
         if total > 0:
             self._show_full_image(self._images[0])
+            if self._pending_thumbs:
+                self._pending_thumbs[0].set_selected(True)
+                self._selected_thumb = self._pending_thumbs[0]
 
         self._load_index = 0
         QtCore.QTimer.singleShot(0, self._load_next_thumbnail)
@@ -283,6 +303,13 @@ class ImageBrowser(QDialog):
             self._refresh_view()
 
     def _on_image_clicked(self, image_path: str) -> None:
+        # Deselect previous, select new
+        if self._selected_thumb is not None:
+            self._selected_thumb.set_selected(False)
+        sender = self.sender()
+        if isinstance(sender, _ThumbnailLabel):
+            sender.set_selected(True)
+            self._selected_thumb = sender
         self._show_full_image(image_path)
 
     def _show_full_image(self, image_path: str) -> None:
@@ -292,8 +319,10 @@ class ImageBrowser(QDialog):
             logger.exception("Failed to load preview: %s", image_path)
             self.previewLabel.clear()
             self._preview_pixmap = None
+            self.fileNameLabel.setText("")
             return
         self._fit_preview_to_pane()
+        self.fileNameLabel.setText(os.path.basename(image_path))
 
     def _fit_preview_to_pane(self) -> None:
         if self._preview_pixmap is None:
@@ -311,7 +340,12 @@ class ImageBrowser(QDialog):
     def resizeEvent(self, event: QtGui.QResizeEvent | None) -> None:
         super().resizeEvent(event)
         self._fit_preview_to_pane()
-        self._refresh_view()
+
+    def closeEvent(self, event: QtGui.QCloseEvent | None) -> None:
+        """Hide instead of closing — allows Ctrl+C / 'q' in main loop."""
+        self.hide()
+        if event is not None:
+            event.ignore()
 
     # ------------------------------------------------------------------
     # Right-click context menu
@@ -339,6 +373,13 @@ class ImageBrowser(QDialog):
         del_action = menu.addAction("Move to considerForDeletion")
         del_action.triggered.connect(
             lambda: self._move_file(image_path, CONSIDER_DELETION),
+        )
+
+        menu.addSeparator()
+
+        poster_action = menu.addAction("Copy to Poster")
+        poster_action.triggered.connect(
+            lambda: self._copy_file(image_path, "goodForPoster"),
         )
 
         menu.addSeparator()
@@ -373,6 +414,19 @@ class ImageBrowser(QDialog):
                 logger.exception("Failed to move S3 QR %s", s3_path)
 
         self._load_folder()
+
+    def _copy_file(self, image_path: str, dest_folder: str) -> None:
+        """Copy *image_path* (image only, no S3 QR) to *dest_folder*."""
+        os.makedirs(dest_folder, exist_ok=True)
+
+        fname = os.path.basename(image_path)
+        dest_path = os.path.join(dest_folder, fname)
+
+        try:
+            shutil.copy2(image_path, dest_path)
+            logger.info("Copied %s → %s", image_path, dest_path)
+        except OSError:
+            logger.exception("Failed to copy %s", image_path)
 
     def _delete_file(self, image_path: str) -> None:
         fname = os.path.basename(image_path)

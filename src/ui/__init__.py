@@ -316,8 +316,8 @@ class MainWindow(QMainWindow):
 
     def _on_browse_images(self) -> None:
         from src.image_browser import ImageBrowser
-        browser = ImageBrowser(self)
-        browser.exec()
+        self._browser = ImageBrowser(self)
+        self._browser.show()
 
 
 # ===================================================================
