@@ -315,7 +315,7 @@ class MainWindow(QMainWindow):
         gw.goTriggered = True
 
     def _on_browse_images(self) -> None:
-        from src.image_browser import ImageBrowser
+        from src.browser import ImageBrowser
         self._browser = ImageBrowser(self)
         self._browser.show()
 
