@@ -50,6 +50,10 @@ FOLDERS: dict[str, str] = {
 }
 CONSIDER_DELETION: str = "./considerForDeletion"
 
+# Thumbnail cache — pre-scaled 150px PNGs to avoid re-decoding large files
+_CACHE_DIR: str = "./.thumbcache"
+_MAX_CACHE_FILES: int = 1000
+
 # S3 QR code suffix pattern:  {basename}-image.png  →  {basename}-s3_url.jpg
 _IMAGE_SUFFIX: str = "-image.png"
 _S3_SUFFIX: str = "-s3_url.jpg"
@@ -75,6 +79,79 @@ def _collect_image_files(folder: str) -> list[str]:
             continue
         result.append(os.path.join(folder, fname))
     return result
+
+
+# ---------------------------------------------------------------------------
+# Thumbnail cache helpers
+# ---------------------------------------------------------------------------
+
+def _cache_path(image_path: str) -> str:
+    """Return the cache file path for a given source image."""
+    folder = os.path.dirname(image_path) or "."
+    fname = os.path.basename(image_path)
+    return os.path.join(_CACHE_DIR, folder.lstrip("./"), fname)
+
+
+def _read_cache(image_path: str) -> QtGui.QPixmap | None:
+    """Load a pre-scaled thumbnail from the cache, or None on miss."""
+    cpath = _cache_path(image_path)
+    if not os.path.isfile(cpath):
+        return None
+    if os.path.getmtime(cpath) < os.path.getmtime(image_path):
+        return None
+    pix = QtGui.QPixmap(cpath)
+    return None if pix.isNull() else pix
+
+
+def _write_cache(image_path: str, pixmap: QtGui.QPixmap) -> None:
+    """Write a scaled thumbnail pixmap to the cache."""
+    cpath = _cache_path(image_path)
+    os.makedirs(os.path.dirname(cpath), exist_ok=True)
+    pixmap.save(cpath, "PNG")
+
+
+def _remove_cache(image_path: str) -> None:
+    """Delete a cached thumbnail if it exists."""
+    cpath = _cache_path(image_path)
+    if os.path.isfile(cpath):
+        try:
+            os.remove(cpath)
+        except OSError:
+            pass
+
+
+def _cleanup_orphan_cache(folder: str, images: list[str]) -> None:
+    """Remove cache entries whose source image no longer exists."""
+    image_names = {os.path.basename(p) for p in images}
+    cache_subdir = os.path.join(_CACHE_DIR, folder.lstrip("./"))
+    if not os.path.isdir(cache_subdir):
+        return
+    for fname in os.listdir(cache_subdir):
+        if fname not in image_names:
+            try:
+                os.remove(os.path.join(cache_subdir, fname))
+            except OSError:
+                pass
+
+
+def _prune_cache_if_large() -> None:
+    """Evict oldest cache files if the cache grows too large."""
+    all_files: list[tuple[float, str]] = []
+    for root, _dirs, files in os.walk(_CACHE_DIR):
+        for f in files:
+            fp = os.path.join(root, f)
+            try:
+                all_files.append((os.path.getmtime(fp), fp))
+            except OSError:
+                pass
+    if len(all_files) <= _MAX_CACHE_FILES:
+        return
+    all_files.sort()
+    for _ts, fp in all_files[: len(all_files) - _MAX_CACHE_FILES]:
+        try:
+            os.remove(fp)
+        except OSError:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -120,18 +197,26 @@ class _ThumbnailLabel(QLabel):
             )
 
     def load(self) -> None:
-        """Load the thumbnail image from disk and scale to 150px."""
+        """Load the thumbnail image — from cache if available, else from disk."""
         if self._loaded:
             return
         self._loaded = True
         try:
-            pix = QtGui.QPixmap(self._image_path)
-            thumb = pix.scaled(
-                THUMBNAIL_SIZE, THUMBNAIL_SIZE,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self.setPixmap(thumb)
+            # Try cache first
+            pix = _read_cache(self._image_path)
+            if pix is not None:
+                # Cache hit — already 150px, just display it
+                self.setPixmap(pix)
+            else:
+                # Cache miss — load from disk, scale, and write cache
+                pix = QtGui.QPixmap(self._image_path)
+                thumb = pix.scaled(
+                    THUMBNAIL_SIZE, THUMBNAIL_SIZE,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                self.setPixmap(thumb)
+                _write_cache(self._image_path, thumb)
             # Preserve selection state
             if self._selected:
                 self.setStyleSheet("border: 3px solid #FF3333; background-color: #222;")
@@ -225,6 +310,8 @@ class ImageBrowser(QDialog):
     def _load_folder(self) -> None:
         folder_path = FOLDERS[self._current_folder_key]
         self._images = _collect_image_files(folder_path)
+        _cleanup_orphan_cache(folder_path, self._images)
+        _prune_cache_if_large()
         self._current_page = 0
         self._refresh_view()
 
@@ -413,6 +500,7 @@ class ImageBrowser(QDialog):
             except OSError:
                 logger.exception("Failed to move S3 QR %s", s3_path)
 
+        _remove_cache(image_path)
         self._load_folder()
 
     def _copy_file(self, image_path: str, dest_folder: str) -> None:
@@ -446,6 +534,7 @@ class ImageBrowser(QDialog):
         except OSError:
             logger.exception("Failed to delete %s", image_path)
 
+        _remove_cache(image_path)
         s3_path = _find_s3_counterpart(image_path)
         if s3_path:
             try:
