@@ -69,12 +69,14 @@ speech2picture/
 python3 pyspeech.py          # interactive terminal menu
 python3 pyspeech.py -o -q     # once, with S3 upload + QR codes
 python3 pyspeech.py -g        # kiosk mode (hardware button)
+python3 pyspeech.py --duration 10  # record only 10 seconds
 python3 pyspeech.py -h        # show all CLI options
 ```
 
 | Flag | Description |
 |------|-------------|
 | `-o` | Audio-only keywords (10 s recording, no extraction) |
+| `--duration SECONDS` | Recording length (default 120, or 10 with `-o`); overrides `s2pconfig.json` |
 | `-q` | Upload to S3 and display QR codes |
 | `-g` | Kiosk mode (hardware button control) |
 | `-m` | Single large image (DALL·E 3) |
@@ -84,6 +86,10 @@ python3 pyspeech.py -h        # show all CLI options
 | `-w FILE` | Use audio from file |
 | `-t FILE` | Use transcript from file |
 | `-i FILE` | Use image from file |
+
+The recording length can also be set via a `"duration"` key (in seconds) in
+`s2pconfig.json`.  Precedence: `--duration` > `s2pconfig.json` `duration` >
+`-o` default (10 s) > built-in default (120 s).
 
 ---
 

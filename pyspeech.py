@@ -153,7 +153,7 @@ def audio_to_picture(
             os.system('say "Now recording."')
 
         display_text_in_message_window(
-            "Speak Now\r\nYou have 10 seconds", label_message,
+            f"Speak Now\r\nYou have {settings.duration} seconds", label_message,
         )
         # Force the message window to render before blocking on audio I/O.
         # macOS gets a natural delay from `say`, but RPi needs explicit pump.
@@ -359,7 +359,9 @@ def main() -> None:
     setup_hardware()
 
     # ---- Parse command line ------------------------------------------------
-    settings = parse_command_line_args()
+    # The "duration" key in s2pconfig.json (if present) acts as a default for
+    # the recording length; an explicit --duration flag overrides it.
+    settings = parse_command_line_args(app_cfg.get("duration"))
     gw.useS3 = settings.useS3
     gw.kiosk_mode = settings.kiosk_mode
     gw.single_image = settings.single_image
@@ -496,8 +498,11 @@ def main() -> None:
                             label_image, label_qr, label_qr_text,
                         )
 
-        # ---- Set duration for audio-keywords mode --------------------------
-        if settings.isAudioKeywords:
+        # ---- Set duration for audio-keywords mode (runtime only) -----------
+        # When isAudioKeywords is set at runtime (hardware button), default
+        # to 10 seconds — but only if the user hasn't explicitly set a
+        # duration via --duration or s2pconfig.json.
+        if settings.isAudioKeywords and not settings.duration_explicit:
             settings.duration = 10
 
         # ---- Execute image generation --------------------------------------

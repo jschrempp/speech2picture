@@ -124,8 +124,8 @@ def generate_images(
     """Generate images via OpenAI and return (urls_or_b64_list, modifier_str).
 
     ``phrase`` is used as the image prompt.  ``single_image`` switches to
-    dalle-3 and returns one image.  Otherwise four concurrent gpt-image-1.5
-    requests are made with different style modifiers.
+    dalle-3 and returns one image.  Otherwise four concurrent
+    gpt-image-2.6-flare requests are made with different style modifiers.
 
     ``progress_callback``, if provided, is called with (message, label) to
     update the UI.
@@ -170,7 +170,7 @@ def generate_images(
         return urls, modifier_used
 
     # ------------------------------------------------------------------
-    # Four concurrent images (gpt-image-1.5)
+    # Four concurrent images (gpt-image-2.6-flare)
     # ------------------------------------------------------------------
     num_images: int = 4
     modifiers_to_use: list[str] = (
@@ -221,10 +221,15 @@ def generate_images(
             def _submit(p: str = prompt) -> object:
                 return openai.images.generate(
                     prompt=p,
-                    model="gpt-image-2",
-                    quality="low",  # $0.005  medium is $0.05, high is $0.20
+                    model="gpt-image-2.6-flare",
+                    quality="low",  # low/medium/high; billing is token-based
                     n=1,
                     size="1024x1024",
+                    # complexity controls pre-render planning (latency), not
+                    # rendering quality. "low" is fastest and suits a kiosk.
+                    # Passed via extra_body because the pinned openai SDK
+                    # (1.3.7) has no typed `complexity` argument yet.
+                    extra_body={"complexity": "low"},
                 )
 
             future = executor.submit(_submit)
@@ -245,7 +250,7 @@ def generate_images(
         for future in as_completed(future_to_index):
             idx = future_to_index[future]
             response_image = future.result()
-            # gpt-image-1.5 returns b64_json
+            # GPT image models always return base64-encoded images (no URLs)
             image_urls[idx] = response_image.data[0].b64_json
             completed_count += 1
             logger.info(

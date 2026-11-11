@@ -117,6 +117,7 @@ line (e.g. `by Van Gogh`).  These replace the built-in style modifiers.
 | Flag | Description |
 |------|-------------|
 | `-o` | Audio-only keywords (10-second recording, no extraction) |
+| `--duration SECONDS` | Recording length (default 120, or 10 with `-o`); overrides `s2pconfig.json` |
 | `-q` | Upload to S3 and display QR codes |
 | `-g` | Kiosk mode (hardware button control) |
 | `-m` | Single large image (DALL·E 3) instead of 4-grid |
@@ -128,6 +129,10 @@ line (e.g. `by Van Gogh`).  These replace the built-in style modifiers.
 | `-T FILE` | Use summary from file |
 | `-k FILE` | Use keywords from file |
 | `-i FILE` | Use image from file |
+
+The recording length can also be set via a `"duration"` key (in seconds) in
+`s2pconfig.json`.  Precedence: `--duration` > `s2pconfig.json` `duration` >
+`-o` default (10 s) > built-in default (120 s).
 
 ---
 

@@ -91,6 +91,7 @@ gw = GlobalWindowVars()
 
 class RuntimeArgs:
     duration: int = 120
+    duration_explicit: bool = False
     isUsingHardwareButtons: bool = False
     isAudioKeywords: bool = False
     numLoops: int = 1
@@ -179,51 +180,115 @@ voice_command_functions: dict[str, object] = {}
 # CLI argument parsing
 # ---------------------------------------------------------------------------
 
-def parse_command_line_args() -> RuntimeArgs:
-    """Parse sys.argv and return a populated RuntimeArgs."""
+def parse_command_line_args(json_duration: int | None = None) -> RuntimeArgs:
+    """Parse sys.argv and return a populated RuntimeArgs.
+
+    ``json_duration`` is the recording duration (seconds) read from the
+    ``"duration"`` key in s2pconfig.json.  It acts as a default, overridden
+    by an explicit ``--duration`` on the command line.
+    """
     rtn = RuntimeArgs()
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-s", "--savefiles", help="save the files", action="store_true",
+    parser = argparse.ArgumentParser(
+        prog="pyspeech.py",
+        description=(
+            "Speech2Picture: record speech, transcribe it with OpenAI Whisper, "
+            "extract keywords, and generate AI images to display in a kiosk."
+        ),
+        epilog=(
+            "examples:\n"
+            "  pyspeech.py                 run the full record->image pipeline\n"
+            "  pyspeech.py -w voice.wav    start from an existing audio file\n"
+            "  pyspeech.py -t transcript.txt   start from an existing transcript\n"
+            "  pyspeech.py -i image.png    display an existing image\n"
+            "  pyspeech.py -g              jump straight into kiosk mode\n"
+            "  pyspeech.py -m -d 2         one large image, full debug output"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "-d", "--debug", help="0:info, 1:prompts, 2:responses", type=int,
+        "-s", "--savefiles",
+        action="store_true",
+        help="save intermediate files (audio, transcript, summary, keywords, "
+             "and image) to disk instead of only showing results on screen",
     )
     parser.add_argument(
-        "-w", "--wav", help="use audio from file", type=str, default=0,
+        "-d", "--debug",
+        type=int,
+        metavar="LEVEL",
+        help="verbosity level for logging. 0=info only (default), "
+             "1=also show prompts sent to OpenAI, 2=also show the raw "
+             "OpenAI responses",
     )
     parser.add_argument(
-        "-t", "--transcript", help="use transcript from file", type=str,
+        "--duration",
+        type=int,
+        metavar="SECONDS",
+        help="number of seconds to record audio. Overrides the 'duration' "
+             "value in s2pconfig.json. Defaults to 120, or 10 when "
+             "-o/--onlykeywords is used.",
+    )
+    parser.add_argument(
+        "-w", "--wav",
+        type=str,
         default=0,
+        metavar="FILE",
+        help="skip recording and start from an existing audio file "
+             "(e.g. recording.wav)",
     )
     parser.add_argument(
-        "-T", "--summary", help="use summary from file", type=str, default=0,
-    )
-    parser.add_argument(
-        "-k", "--keywords", help="use keywords from file", type=str,
+        "-t", "--transcript",
+        type=str,
         default=0,
+        metavar="FILE",
+        help="start from an existing transcript text file instead of "
+             "recording and transcribing audio",
     )
     parser.add_argument(
-        "-i", "--image", help="use image from file", type=str, default=0,
+        "-T", "--summary",
+        type=str,
+        default=0,
+        metavar="FILE",
+        help="start from an existing summary text file",
+    )
+    parser.add_argument(
+        "-k", "--keywords",
+        type=str,
+        default=0,
+        metavar="FILE",
+        help="start from an existing keywords file (skip transcription and "
+             "keyword extraction)",
+    )
+    parser.add_argument(
+        "-i", "--image",
+        type=str,
+        default=0,
+        metavar="FILE",
+        help="skip everything and display an existing image file directly",
     )
     parser.add_argument(
         "-o", "--onlykeywords",
-        help="use audio directly without extracting keywords",
         action="store_true",
+        help="use the raw audio text as the image prompt without running "
+             "the keyword-extraction step; also records only 10 seconds",
     )
     parser.add_argument(
-        "-g", "--gokiosk", help="jump into Kiosk mode", action="store_true",
+        "-g", "--gokiosk",
+        action="store_true",
+        help="jump straight into kiosk mode (continuous operation with "
+             "hardware buttons on the Raspberry Pi)",
     )
     parser.add_argument(
         "-q", "--use_s3",
-        help="try to store image files to AWS S3, and generate QR codes",
         action="store_true",
+        help="upload generated images to AWS S3 and show a QR code linking "
+             "to them",
     )
     parser.add_argument(
         "-m", "--mono_image",
-        help="create a single, large image using dall-e-3",
         action="store_true",
+        help="generate a single large image with DALL-E 3 instead of the "
+             "default four-image grid",
     )
     args = parser.parse_args()
 
@@ -281,10 +346,27 @@ def parse_command_line_args() -> RuntimeArgs:
             rtn.inputFileName = args.wav
 
         rtn.isAudioKeywords = bool(args.onlykeywords)
-        if rtn.isAudioKeywords:
-            rtn.duration = 10
 
         rtn.isSaveFiles = bool(args.savefiles)
+
+    # -- Recording duration ---------------------------------------------------
+    # Precedence: --duration > s2pconfig.json "duration" > audio-keywords
+    # mode default (10s) > RuntimeArgs default (120s).
+    json_dur: int | None = None
+    if json_duration is not None:
+        try:
+            json_dur = int(json_duration)
+        except (TypeError, ValueError):
+            json_dur = None
+
+    if args.duration is not None:
+        rtn.duration = args.duration
+        rtn.duration_explicit = True
+    elif json_dur is not None:
+        rtn.duration = json_dur
+        rtn.duration_explicit = True
+    elif rtn.isAudioKeywords:
+        rtn.duration = 10
 
     return rtn
 
