@@ -18,3 +18,8 @@ src/ui/status_dialog.py
 test*
 creepy photo secret key
 src/ui/image_browser.py
+src/ui/image_browser_ui.py
+s2pconfig.json
+s2pResource.qrc
+s2pResource_rc.py
+.thumbcache/

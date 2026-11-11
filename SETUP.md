@@ -134,6 +134,9 @@ The recording length can also be set via a `"duration"` key (in seconds) in
 `s2pconfig.json`.  Precedence: `--duration` > `s2pconfig.json` `duration` >
 `-o` default (10 s) > built-in default (120 s).
 
+Copy `s2pconfig.sample.json` to `s2pconfig.json` and edit it to suit your
+installation.
+
 ---
 
 ## Troubleshooting
